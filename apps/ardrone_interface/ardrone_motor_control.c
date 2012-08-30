@@ -226,51 +226,51 @@ int ar_init_motors(int ardrone_uart, int *gpios_pin)
 	uint8_t i;
 	int errcounter = 0;
 
-	usleep(500000);
+	// usleep(500000);
 
-	for (i = 1; i < 5; ++i) {
-		/* Initialize motors 1-4 */
-		errcounter += ar_select_motor(*gpios_pin, i);
+	// for (i = 1; i < 5; ++i) {
+	// 	/* Initialize motors 1-4 */
+	// 	errcounter += ar_select_motor(*gpios_pin, i);
 
-		write(ardrone_uart, initbuf + 0, 1);
-		usleep(5000);
+	// 	write(ardrone_uart, initbuf + 0, 1);
+	// 	usleep(5000);
 
-		write(ardrone_uart, initbuf + 1, 1);
-		/* wait 50 ms */
-		usleep(80000);
+	// 	write(ardrone_uart, initbuf + 1, 1);
+	// 	/* wait 50 ms */
+	// 	usleep(80000);
 
-		write(ardrone_uart, initbuf + 2, 1);
-		/* wait 50 ms */
-		usleep(50000);
+	// 	write(ardrone_uart, initbuf + 2, 1);
+	// 	/* wait 50 ms */
+	// 	usleep(50000);
 
-		initbuf[3] = i;
-		write(ardrone_uart, initbuf + 3, 1);
-		/* wait 50 ms */
-		usleep(50000);
+	// 	initbuf[3] = i;
+	// 	write(ardrone_uart, initbuf + 3, 1);
+	// 	/* wait 50 ms */
+	// 	usleep(50000);
 
-		write(ardrone_uart, initbuf + 4, 1);
+	// 	write(ardrone_uart, initbuf + 4, 1);
 
-		errcounter += ar_deselect_motor(*gpios_pin, i);
+	// 	errcounter += ar_deselect_motor(*gpios_pin, i);
 
-		/* wait 500 ms */
-		usleep(500000);
-	}
+	// 	/* wait 500 ms */
+	// 	usleep(500000);
+	// }
 
 	for (i = 1; i < 5; ++i) {
 		/* Initialize motors 1-4 */
 		errcounter += ar_select_motor(*gpios_pin, i);
 
 		write(ardrone_uart, addrbuf + 0, 1);
-		usleep(5000);
+		usleep(100);
 
 		addrbuf[1] = i;
 		write(ardrone_uart, addrbuf + 1, 1);
-		/* wait 50 ms */
-		usleep(5000);
+		/* wait 0.1 ms */
+		usleep(100);
 
 		write(ardrone_uart, addrbuf + 2, 1);
-		/* wait 50 ms */
-		usleep(50000);
+		/* wait 0.1 ms */
+		usleep(100);
 
 		errcounter += ar_deselect_motor(*gpios_pin, i);
 	}
