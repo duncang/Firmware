@@ -93,7 +93,7 @@ usage(const char *reason)
  */
 int ardrone_interface_main(int argc, char *argv[])
 {
-		if (argc < 1)
+	if (argc < 1)
 		usage("missing command");
 
 	if (!strcmp(argv[1], "start")) {
@@ -140,38 +140,15 @@ int ardrone_interface_thread_main(int argc, char *argv[])
 	int ardrone_write;
 	int gpios;
 
-	enum {
-		CONTROL_MODE_RATES = 0,
-		CONTROL_MODE_ATTITUDE = 1,
-	} control_mode = CONTROL_MODE_ATTITUDE;
-
 	char *commandline_usage = "\tusage: ardrone_interface -d ardrone-devicename -m mode\n\tmodes are:\n\t\trates\n\t\tattitude\n";
 
 	bool motor_test_mode = false;
 
 	/* read commandline arguments */
-	for (int i = 1; i < argc; i++) {
+	for (int i = 0; i < argc; i++) {
 		if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--device") == 0) { //ardrone set
 			if (argc > i + 1) {
 				ardrone_uart_name = argv[i + 1];
-			} else {
-				printf(commandline_usage);
-				return ERROR;
-			}
-
-		} else if (strcmp(argv[i], "-m") == 0 || strcmp(argv[i], "--mode") == 0) {
-			if (argc > i + 1) {
-				if (strcmp(argv[i + 1], "rates") == 0) {
-					control_mode = CONTROL_MODE_RATES;
-
-				} else if (strcmp(argv[i + 1], "attitude") == 0) {
-					control_mode = CONTROL_MODE_ATTITUDE;
-
-				} else {
-					printf(commandline_usage);
-					return ERROR;
-				}
-
 			} else {
 				printf(commandline_usage);
 				return ERROR;
@@ -183,7 +160,6 @@ int ardrone_interface_thread_main(int argc, char *argv[])
 	}
 
 	/* open uarts */
-	printf("[ardrone_interface] AR.Drone UART is %s\n", ardrone_uart_name);
 	ardrone_write = open(ardrone_uart_name, O_RDWR | O_NOCTTY | O_NDELAY);
 	if (ardrone_write < 0) {
 		fprintf(stderr, "[ardrone_interface] Failed opening AR.Drone UART, exiting.\n");
@@ -196,6 +172,8 @@ int ardrone_interface_thread_main(int argc, char *argv[])
 		fprintf(stderr, "[ardrone_interface] Failed initializing AR.Drone motors, exiting.\n");
 		exit(ERROR);
 	}
+
+	printf("[ardrone_interface] started motor test.\n");
 
 	/* Led animation */
 	int counter = 0;
@@ -214,18 +192,13 @@ int ardrone_interface_thread_main(int argc, char *argv[])
 	int state_sub = orb_subscribe(ORB_ID(vehicle_status));
 	int armed_sub = orb_subscribe(ORB_ID(actuator_armed));
 
+	printf("[ardrone_interface] Active - UART is %s\n", ardrone_uart_name);
+
 	while (!thread_should_exit) {
 
 		if (motor_test_mode) {
 			/* set motors to idle speed */
-			ardrone_write_motor_commands(ardrone_write, 10, 0, 0, 0);
-			sleep(2);
-			ardrone_write_motor_commands(ardrone_write, 0, 10, 0, 0);
-			sleep(2);
-			ardrone_write_motor_commands(ardrone_write, 0, 0, 10, 0);
-			sleep(2);
-			ardrone_write_motor_commands(ardrone_write, 0, 0, 0, 10);
-			sleep(2);
+			ardrone_write_motor_commands(ardrone_write, 10, 10, 10, 10);
 		} else {
 			/* MAIN OPERATION MODE */
 
@@ -243,35 +216,35 @@ int ardrone_interface_thread_main(int argc, char *argv[])
 			}
 		}
 
-		if (counter % 22 == 0) {
-			if (led_counter == 0) ar_set_leds(ardrone_write, 0, 1, 0, 0, 0, 0, 0 , 0);
+		// if (counter % 22 == 0) {
+		// 	if (led_counter == 0) ar_set_leds(ardrone_write, 0, 1, 0, 0, 0, 0, 0 , 0);
 
-			if (led_counter == 1) ar_set_leds(ardrone_write, 1, 1, 0, 0, 0, 0, 0 , 0);
+		// 	if (led_counter == 1) ar_set_leds(ardrone_write, 1, 1, 0, 0, 0, 0, 0 , 0);
 
-			if (led_counter == 2) ar_set_leds(ardrone_write, 1, 0, 0, 0, 0, 0, 0 , 0);
+		// 	if (led_counter == 2) ar_set_leds(ardrone_write, 1, 0, 0, 0, 0, 0, 0 , 0);
 
-			if (led_counter == 3) ar_set_leds(ardrone_write, 0, 0, 0, 1, 0, 0, 0 , 0);
+		// 	if (led_counter == 3) ar_set_leds(ardrone_write, 0, 0, 0, 1, 0, 0, 0 , 0);
 
-			if (led_counter == 4) ar_set_leds(ardrone_write, 0, 0, 1, 1, 0, 0, 0 , 0);
+		// 	if (led_counter == 4) ar_set_leds(ardrone_write, 0, 0, 1, 1, 0, 0, 0 , 0);
 
-			if (led_counter == 5) ar_set_leds(ardrone_write, 0, 0, 1, 0, 0, 0, 0 , 0);
+		// 	if (led_counter == 5) ar_set_leds(ardrone_write, 0, 0, 1, 0, 0, 0, 0 , 0);
 
-			if (led_counter == 6) ar_set_leds(ardrone_write, 0, 0, 0, 0, 0, 1, 0 , 0);
+		// 	if (led_counter == 6) ar_set_leds(ardrone_write, 0, 0, 0, 0, 0, 1, 0 , 0);
 
-			if (led_counter == 7) ar_set_leds(ardrone_write, 0, 0, 0, 0, 1, 1, 0 , 0);
+		// 	if (led_counter == 7) ar_set_leds(ardrone_write, 0, 0, 0, 0, 1, 1, 0 , 0);
 
-			if (led_counter == 8) ar_set_leds(ardrone_write, 0, 0, 0, 0, 1, 0, 0 , 0);
+		// 	if (led_counter == 8) ar_set_leds(ardrone_write, 0, 0, 0, 0, 1, 0, 0 , 0);
 
-			if (led_counter == 9) ar_set_leds(ardrone_write, 0, 0, 0, 0, 0, 0, 0 , 1);
+		// 	if (led_counter == 9) ar_set_leds(ardrone_write, 0, 0, 0, 0, 0, 0, 0 , 1);
 
-			if (led_counter == 10) ar_set_leds(ardrone_write, 0, 0, 0, 0, 0, 0, 1 , 1);
+		// 	if (led_counter == 10) ar_set_leds(ardrone_write, 0, 0, 0, 0, 0, 0, 1 , 1);
 
-			if (led_counter == 11) ar_set_leds(ardrone_write, 0, 0, 0, 0, 0, 0, 1 , 0);
+		// 	if (led_counter == 11) ar_set_leds(ardrone_write, 0, 0, 0, 0, 0, 0, 1 , 0);
 
-			led_counter++;
+		// 	led_counter++;
 
-			if (led_counter == 12) led_counter = 0;
-		}
+		// 	if (led_counter == 12) led_counter = 0;
+		// }
 
 		/* run at approximately 50 Hz */
 		usleep(20000);

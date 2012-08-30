@@ -140,13 +140,16 @@ int ar_multiplexing_deinit(int fd)
 	ret += ioctl(fd, GPIO_SET, motor_gpios);
 
 	if (ret != 0) {
-		printf("GPIO: clear failed %d times\n", ret);
+		printf("GPIO: set failed %d times\n", ret);
 	}
 
 	if (ioctl(fd, GPIO_SET_INPUT, motor_gpios) != 0) {
 		printf("GPIO: input set fail\n");
 		return -1;
 	}
+
+	/* deselect motor 1-4 */
+	ret += ioctl(fd, GPIO_SET, motor_gpios);
 
 	close(fd);
 
@@ -171,15 +174,36 @@ int ar_select_motor(int fd, uint8_t motor)
 		ret += ioctl(fd, GPIO_CLEAR, motor_gpios);
 
 	} else {
-		/* deselect all */
-		ret += ioctl(fd, GPIO_SET, motor_gpios);
-
 		/* select reqested motor */	
 		ret += ioctl(fd, GPIO_CLEAR, motor_gpio[motor - 1]);
 
 		/* deselect all others */
 		// gpioset = motor_gpios ^ motor_gpio[motor - 1];
 		// ret += ioctl(fd, GPIO_SET, gpioset);
+	}
+
+	return ret;
+}
+
+int ar_deselect_motor(int fd, uint8_t motor)
+{
+	int ret = 0;
+	unsigned long gpioset;
+	/*
+	 *  Four GPIOS:
+	 *		GPIO_EXT1
+	 *		GPIO_EXT2
+	 *		GPIO_UART2_CTS
+	 *		GPIO_UART2_RTS
+	 */
+
+	if (motor == 0) {
+		/* deselect motor 1-4 */
+		ret += ioctl(fd, GPIO_SET, motor_gpios);
+
+	} else {
+		/* deselect reqested motor */	
+		ret = ioctl(fd, GPIO_SET, motor_gpio[motor - 1]);
 	}
 
 	return ret;
@@ -192,70 +216,148 @@ int ar_init_motors(int ardrone_uart, int *gpios_pin)
 
 	/* Write ARDrone commands on UART2 */
 	uint8_t initbuf[] = {0xE0, 0x91, 0xA1, 0x00, 0x40};
+	uint8_t addrbuf[] = {0xE0, 0x00, 0x40};
 	uint8_t multicastbuf[] = {0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0};
 
 	/* initialize all motors
 	 * - select one motor at a time
 	 * - configure motor
 	 */
-	int i;
+	uint8_t i;
 	int errcounter = 0;
+
+	usleep(500000);
 
 	for (i = 1; i < 5; ++i) {
 		/* Initialize motors 1-4 */
-		initbuf[3] = i;
 		errcounter += ar_select_motor(*gpios_pin, i);
 
 		write(ardrone_uart, initbuf + 0, 1);
-
-		/* sleep 400 ms */
-		usleep(200000);
-		usleep(200000);
+		usleep(5000);
 
 		write(ardrone_uart, initbuf + 1, 1);
 		/* wait 50 ms */
-		usleep(50000);
+		usleep(80000);
 
 		write(ardrone_uart, initbuf + 2, 1);
 		/* wait 50 ms */
 		usleep(50000);
 
+		initbuf[3] = i;
 		write(ardrone_uart, initbuf + 3, 1);
 		/* wait 50 ms */
 		usleep(50000);
 
 		write(ardrone_uart, initbuf + 4, 1);
+
+		errcounter += ar_deselect_motor(*gpios_pin, i);
+
+		/* wait 500 ms */
+		usleep(500000);
+	}
+
+	for (i = 1; i < 5; ++i) {
+		/* Initialize motors 1-4 */
+		errcounter += ar_select_motor(*gpios_pin, i);
+
+		write(ardrone_uart, addrbuf + 0, 1);
+		usleep(5000);
+
+		addrbuf[1] = i;
+		write(ardrone_uart, addrbuf + 1, 1);
+		/* wait 50 ms */
+		usleep(5000);
+
+		write(ardrone_uart, addrbuf + 2, 1);
 		/* wait 50 ms */
 		usleep(50000);
 
-		/* enable multicast */
-		write(ardrone_uart, multicastbuf + 0, 1);
-		/* wait 1 ms */
-		usleep(1000);
-
-		write(ardrone_uart, multicastbuf + 1, 1);
-		/* wait 1 ms */
-		usleep(1000);
-
-		write(ardrone_uart, multicastbuf + 2, 1);
-		/* wait 1 ms */
-		usleep(1000);
-
-		write(ardrone_uart, multicastbuf + 3, 1);
-		/* wait 1 ms */
-		usleep(1000);
-
-		write(ardrone_uart, multicastbuf + 4, 1);
-		/* wait 1 ms */
-		usleep(1000);
-
-		write(ardrone_uart, multicastbuf + 5, 1);
-		/* wait 5 ms */
-		usleep(50000);
+		errcounter += ar_deselect_motor(*gpios_pin, i);
 	}
+
+	/* wait 500 ms */
+	usleep(500000);
 
 	/* start the multicast part */
 	errcounter += ar_select_motor(*gpios_pin, 0);
+
+	/* enable multicast */
+	write(ardrone_uart, multicastbuf + 0, 1);
+	/* wait 1 ms */
+	usleep(1000);
+
+	write(ardrone_uart, multicastbuf + 1, 1);
+	/* wait 1 ms */
+	usleep(1000);
+
+	write(ardrone_uart, multicastbuf + 2, 1);
+	/* wait 1 ms */
+	usleep(1000);
+
+	write(ardrone_uart, multicastbuf + 3, 1);
+	/* wait 1 ms */
+	usleep(1000);
+
+	write(ardrone_uart, multicastbuf + 4, 1);
+	/* wait 1 ms */
+	usleep(1000);
+
+	write(ardrone_uart, multicastbuf + 5, 1);
+	/* wait 500 ms */
+	usleep(500000);
+
+	// 	for (i = 1; i < 5; ++i) {
+	// 	/* Initialize motors 1-4 */
+	// 	initbuf[3] = i;
+	// 	errcounter += ar_select_motor(*gpios_pin, i);
+
+	// 	write(ardrone_uart, initbuf + 0, 1);
+
+	// 	/* sleep 400 ms */
+	// 	usleep(200000);
+	// 	usleep(200000);
+
+	// 	write(ardrone_uart, initbuf + 1, 1);
+	// 	/* wait 50 ms */
+	// 	usleep(50000);
+
+	// 	write(ardrone_uart, initbuf + 2, 1);
+	// 	/* wait 50 ms */
+	// 	usleep(50000);
+
+	// 	write(ardrone_uart, initbuf + 3, 1);
+	// 	/* wait 50 ms */
+	// 	usleep(50000);
+
+	// 	write(ardrone_uart, initbuf + 4, 1);
+	// 	/* wait 50 ms */
+	// 	usleep(50000);
+
+	// 	/* enable multicast */
+	// 	write(ardrone_uart, multicastbuf + 0, 1);
+	// 	/* wait 1 ms */
+	// 	usleep(1000);
+
+	// 	write(ardrone_uart, multicastbuf + 1, 1);
+	// 	/* wait 1 ms */
+	// 	usleep(1000);
+
+	// 	write(ardrone_uart, multicastbuf + 2, 1);
+	// 	/* wait 1 ms */
+	// 	usleep(1000);
+
+	// 	write(ardrone_uart, multicastbuf + 3, 1);
+	// 	/* wait 1 ms */
+	// 	usleep(1000);
+
+	// 	write(ardrone_uart, multicastbuf + 4, 1);
+	// 	/* wait 1 ms */
+	// 	usleep(1000);
+
+	// 	write(ardrone_uart, multicastbuf + 5, 1);
+	// 	/* wait 5 ms */
+	// 	usleep(50000);
+	// }
 
 	if (errcounter != 0) {
 		fprintf(stderr, "[ar motors] init sequence incomplete, failed %d times", -errcounter);
