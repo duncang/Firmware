@@ -35,6 +35,7 @@
 /**
  * @file px4_simple_app.c
  * Minimal application example for PX4 autopilot.
+ * Implements example from https://pixhawk.ethz.ch/px4/dev/hello_sky#step_4upload_and_test_the_app
  */
  
 #include <nuttx/config.h>
@@ -59,6 +60,9 @@ int px4_simple_app_main(int argc, char *argv[])
 
 	// subscribe to sensor_combined topic
 	int sensor_sub_fd = orb_subscribe(ORB_ID(sensor_combined));
+	
+	// set interval that we are interested in getting the data at
+	orb_set_interval(sensor_sub_fd, 500); // 500ms
 
 	struct pollfd fds[] = {
 		{ .fd = sensor_sub_fd, .events = POLLIN },
