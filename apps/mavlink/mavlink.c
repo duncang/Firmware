@@ -83,7 +83,7 @@
 /* define MAVLink specific parameters */
 PARAM_DEFINE_INT32(MAV_SYS_ID, 1);
 PARAM_DEFINE_INT32(MAV_COMP_ID, 50);
-PARAM_DEFINE_INT32(MAV_TYPE, MAV_TYPE_QUADROTOR);
+PARAM_DEFINE_INT32(MAV_TYPE, MAV_TYPE_FIXED_WING);
 
 __EXPORT int mavlink_main(int argc, char *argv[]);
 int mavlink_thread_main(int argc, char *argv[]);
@@ -95,7 +95,7 @@ static int mavlink_task;
 /* terminate MAVLink on user request - disabled by default */
 static bool mavlink_link_termination_allowed = false;
 
-mavlink_system_t mavlink_system = {100, 50, MAV_TYPE_QUADROTOR, 0, 0, 0}; // System ID, 1-255, Component/Subsystem ID, 1-255
+mavlink_system_t mavlink_system = {100, 50, MAV_TYPE_FIXED_WING, 0, 0, 0}; // System ID, 1-255, Component/Subsystem ID, 1-255
 static uint8_t chan = MAVLINK_COMM_0;
 static mavlink_status_t status;
 

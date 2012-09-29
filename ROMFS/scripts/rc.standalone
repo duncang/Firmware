@@ -11,14 +11,24 @@ echo "[init] doing standalone PX4FMU startup..."
 uorb start
 
 #
+# Start EEPROM
+#
+echo "[init] eeprom"
+eeprom start
+if [ -f /eeprom/parameters ]
+then
+	eeprom load_param /eeprom/parameters
+fi
+
+#
 # Start the sensors.
 #
-#sh /etc/init.d/rc.sensors
+sh /etc/init.d/rc.sensors
 
 #
 # Start MAVLink
 #
-# mavlink -d /dev/ttyS0 -b 57600 &
+mavlink start -d /dev/ttyS1 -b 57600
 
 #
 # Start the commander.
@@ -57,7 +67,7 @@ uorb start
 #
 # XXX this should not need to be backgrounded
 #
-#gps -d /dev/ttyS3 -m all &
+#gps start -d /dev/ttyS3 -b 9600 -m ubx 
 
 #
 # Start logging to microSD if we can
