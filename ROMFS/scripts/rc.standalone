@@ -67,7 +67,7 @@ mavlink start -d /dev/ttyS1 -b 57600
 #
 # XXX this should not need to be backgrounded
 #
-gps start -m ubx 
+#gps start -m ubx 
 
 #
 # Start logging to microSD if we can
