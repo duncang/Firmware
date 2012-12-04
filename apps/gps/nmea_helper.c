@@ -44,7 +44,7 @@
 #include <uORB/uORB.h>
 #include <uORB/topics/vehicle_gps_position.h>
 #include <mavlink/mavlink_log.h>
-#include <arch/board/up_hrt.h>
+#include <drivers/drv_hrt.h>
 
 #define NMEA_HEALTH_SUCCESS_COUNTER_LIMIT 2
 #define NMEA_HEALTH_FAIL_COUNTER_LIMIT 2
@@ -214,7 +214,7 @@ void *nmea_loop(void *args)
 			nmea_gps->eph = (uint16_t)(info->HDOP * 100); //TODO:test scaling
 			nmea_gps->epv = (uint16_t)(info->VDOP * 100); //TODO:test scaling
 			nmea_gps->vel = (uint16_t)(info->speed * 1000 / 36); //*1000/3600*100
-			nmea_gps->cog = 65535;
+			nmea_gps->cog = (uint16_t)info->direction*100; //nmea: degrees float, ubx/mavlink: degrees*1e2
 			nmea_gps->satellites_visible = (uint8_t)info->satinfo.inview;
 
 			int i = 0;

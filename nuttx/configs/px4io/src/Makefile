@@ -40,17 +40,7 @@ CFLAGS		+= -I$(TOPDIR)/sched
 ASRCS		= 
 AOBJS		= $(ASRCS:.S=$(OBJEXT))
 
-CSRCS		= up_boot.c up_hrt.c\
-		  drv_pwm_servo.c drv_ppm_input.c drv_gpio.c \
-		  up_boardinitialize.c
-
-ifeq ($(CONFIG_NSH_ARCHINIT),y)
-CSRCS		+= up_nsh.c
-endif
-
-ifeq ($(CONFIG_ADC),y)
-CSRCS		+= up_adc.c
-endif
+CSRCS		= empty.c
 
 COBJS		= $(CSRCS:.c=$(OBJEXT))
 

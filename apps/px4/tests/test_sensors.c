@@ -1,7 +1,7 @@
 /****************************************************************************
  *
  *   Copyright (C) 2012 PX4 Development Team. All rights reserved.
- *   Author: @author Lorenz Meier <lm@inf.ethz.ch>
+ *   Author: Lorenz Meier <lm@inf.ethz.ch>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,7 @@
  * @file test_sensors.c
  * Tests the onboard sensors.
  * 
- * The sensors app must not be running when performing this test.
+ * @author Lorenz Meier <lm@inf.ethz.ch>
  */
 
 #include <nuttx/config.h>
@@ -56,11 +56,10 @@
 
 #include "tests.h"
 
-#include <arch/board/drv_lis331.h>
-#include <arch/board/drv_bma180.h>
-#include <arch/board/drv_l3gd20.h>
-#include <arch/board/drv_hmc5883l.h>
+#include <drivers/drv_gyro.h>
 #include <drivers/drv_accel.h>
+#include <drivers/drv_mag.h>
+#include <drivers/drv_baro.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -74,12 +73,10 @@
  * Private Function Prototypes
  ****************************************************************************/
 
-//static int	lis331(int argc, char *argv[]);
-static int l3gd20(int argc, char *argv[]);
-static int bma180(int argc, char *argv[]);
-static int hmc5883l(int argc, char *argv[]);
-static int ms5611(int argc, char *argv[]);
-static int mpu6000(int argc, char *argv[]);
+static int accel(int argc, char *argv[]);
+static int gyro(int argc, char *argv[]);
+static int mag(int argc, char *argv[]);
+static int baro(int argc, char *argv[]);
 
 /****************************************************************************
  * Private Data
@@ -90,12 +87,10 @@ struct {
 	const char	*path;
 	int	(* test)(int argc, char *argv[]);
 } sensors[] = {
-	{"bma180",	"/dev/bma180",	bma180},
-	{"mpu6000",	"/dev/accel",	mpu6000},
-	{"l3gd20",	"/dev/l3gd20",	l3gd20},
-	{"hmc5883l",	"/dev/hmc5883l",	hmc5883l},
-	{"ms5611",	"/dev/ms5611",	ms5611},
-//    {"lis331",	"/dev/lis331",	lis331},
+	{"accel",	"/dev/accel",	accel},
+	{"gyro",	"/dev/gyro",	gyro},
+	{"mag",		"/dev/mag",	mag},
+	{"baro",	"/dev/baro",	baro},
 	{NULL, NULL, NULL}
 };
 
@@ -107,230 +102,10 @@ struct {
  * Private Functions
  ****************************************************************************/
 
-//static int
-//lis331(int argc, char *argv[])
-//{
-//	int		fd;
-//	int16_t	buf[3];
-//	int		ret;
-//
-//	fd = open("/dev/lis331", O_RDONLY);
-//	if (fd < 0) {
-//		printf("\tlis331: not present on PX4FMU v1.5 and later\n");
-//		return ERROR;
-//	}
-//
-//	if (ioctl(fd, LIS331_SETRATE, LIS331_RATE_50Hz) ||
-//	    ioctl(fd, LIS331_SETRANGE, LIS331_RANGE_4G)) {
-//
-//		printf("LIS331: ioctl fail\n");
-//		return ERROR;
-//	}
-//
-//	/* wait at least 100ms, sensor should have data after no more than 20ms */
-//	usleep(100000);
-//
-//	/* read data - expect samples */
-//	ret = read(fd, buf, sizeof(buf));
-//	if (ret != sizeof(buf)) {
-//		printf("LIS331: read1 fail (%d)\n", ret);
-//		return ERROR;
-//	}
-//
-//	/* read data - expect no samples (should not be ready again yet) */
-//	ret = read(fd, buf, sizeof(buf));
-//	if (ret != 0) {
-//		printf("LIS331: read2 fail (%d)\n", ret);
-//		return ERROR;
-//	}
-//
-//	/* XXX more tests here */
-//
-//	return 0;
-//}
-
 static int
-l3gd20(int argc, char *argv[])
+accel(int argc, char *argv[])
 {
-	printf("\tL3GD20: test start\n");
-	fflush(stdout);
-
-	int		fd;
-	int16_t	buf[3] = {0, 0, 0};
-	int		ret;
-
-	fd = open("/dev/l3gd20", O_RDONLY | O_NONBLOCK);
-
-	if (fd < 0) {
-		printf("L3GD20: open fail\n");
-		return ERROR;
-	}
-
-//	if (ioctl(fd, L3GD20_SETRATE, L3GD20_RATE_760HZ_LP_50HZ) ||
-//	    ioctl(fd, L3GD20_SETRANGE, L3GD20_RANGE_500DPS)) {
-//
-//		printf("L3GD20: ioctl fail\n");
-//		return ERROR;
-//	} else {
-//		printf("\tconfigured..\n");
-//	}
-//
-//	/* wait at least 100ms, sensor should have data after no more than 2ms */
-//	usleep(100000);
-
-
-
-	/* read data - expect samples */
-	ret = read(fd, buf, sizeof(buf));
-
-	if (ret != sizeof(buf)) {
-		printf("\tL3GD20: read1 fail (%d should have been %d)\n", ret, sizeof(buf));
-		//return ERROR;
-
-	} else {
-		printf("\tL3GD20 values #1: x:%d\ty:%d\tz:%d\n", buf[0], buf[1], buf[2]);
-	}
-
-	/* wait at least 2 ms, sensor should have data after no more than 1.5ms */
-	usleep(2000);
-
-	/* read data - expect no samples (should not be ready again yet) */
-	ret = read(fd, buf, sizeof(buf));
-
-	if (ret != sizeof(buf)) {
-		printf("\tL3GD20: read2 fail (%d)\n", ret);
-		close(fd);
-		return ERROR;
-
-	} else {
-		printf("\tL3GD20 values #2: x:%d\ty:%d\tz:%d\n", buf[0], buf[1], buf[2]);
-	}
-
-	/* empty sensor buffer */
-	ret = 0;
-
-	while (ret != sizeof(buf)) {
-		// Keep reading until successful
-		ret = read(fd, buf, sizeof(buf));
-	}
-
-	/* test if FIFO is operational */
-	usleep(14800); // Expecting 10 measurements
-
-	ret = 0;
-	int count = 0;
-	bool dataready = true;
-
-	while (dataready) {
-		// Keep reading until successful
-		ret = read(fd, buf, sizeof(buf));
-
-		if (ret != sizeof(buf)) {
-			dataready = false;
-
-		} else {
-			count++;
-		}
-	}
-
-	printf("\tL3GD20: Drained FIFO with %d values (expected 8-12)\n", count);
-
-	/* read data - expect no samples (should not be ready again yet) */
-	ret = read(fd, buf, sizeof(buf));
-
-	if (ret != 0) {
-		printf("\tL3GD20: Note: read3 got data - there should not have been data ready\n", ret);
-//		return ERROR;
-	}
-
-	close(fd);
-
-	/* Let user know everything is ok */
-	printf("\tOK: L3GD20 passed all tests successfully\n");
-	return OK;
-}
-
-static int
-bma180(int argc, char *argv[])
-{
-	// XXX THIS SENSOR IS OBSOLETE
-	// TEST REMAINS, BUT ALWAYS RETURNS OK
-
-	printf("\tBMA180: test start\n");
-	fflush(stdout);
-
-	int		fd;
-	int16_t	buf[3] = {0, 0, 0};
-	int		ret;
-
-	fd = open("/dev/bma180", O_RDONLY);
-
-	if (fd < 0) {
-		printf("\tBMA180: open fail\n");
-		return OK;
-	}
-
-//	if (ioctl(fd, LIS331_SETRATE, LIS331_RATE_50Hz) ||
-//	    ioctl(fd, LIS331_SETRANGE, LIS331_RANGE_4G)) {
-//
-//		printf("BMA180: ioctl fail\n");
-//		return ERROR;
-//	}
-//
-	/* wait at least 100ms, sensor should have data after no more than 20ms */
-	usleep(100000);
-
-	/* read data - expect samples */
-	ret = read(fd, buf, sizeof(buf));
-
-	if (ret != sizeof(buf)) {
-		printf("\tBMA180: read1 fail (%d)\n", ret);
-		close(fd);
-		return OK;
-
-	} else {
-		printf("\tBMA180 values: x:%d\ty:%d\tz:%d\n", buf[0], buf[1], buf[2]);
-	}
-
-	/* wait at least 10ms, sensor should have data after no more than 2ms */
-	usleep(100000);
-
-	ret = read(fd, buf, sizeof(buf));
-
-	if (ret != sizeof(buf)) {
-		printf("\tBMA180: read2 fail (%d)\n", ret);
-		close(fd);
-		return OK;
-
-	} else {
-		printf("\tBMA180: x:%d\ty:%d\tz:%d\n", buf[0], buf[1], buf[2]);
-	}
-
-	/* empty sensor buffer */
-	ret = 0;
-
-	while (ret != sizeof(buf)) {
-		// Keep reading until successful
-		ret = read(fd, buf, sizeof(buf));
-	}
-
-	ret = read(fd, buf, sizeof(buf));
-
-	if (ret != 0) {
-		printf("\tBMA180: Note: read3 got data - there should not have been data ready\n", ret);
-	}
-
-	/* Let user know everything is ok */
-	printf("\tOK: BMA180 passed all tests successfully\n");
-	close(fd);
-
-	return OK;
-}
-
-static int
-mpu6000(int argc, char *argv[])
-{
-	printf("\tMPU-6000: test start\n");
+	printf("\tACCEL: test start\n");
 	fflush(stdout);
 
 	int		fd;
@@ -340,7 +115,7 @@ mpu6000(int argc, char *argv[])
 	fd = open("/dev/accel", O_RDONLY);
 
 	if (fd < 0) {
-		printf("\tMPU-6000: open fail, run <mpu6000 start> first.\n");
+		printf("\tACCEL: open fail, run <mpu6000 start> or <lsm303 start> or <bma180 start> first.\n");
 		return ERROR;
 	}
 
@@ -350,12 +125,12 @@ mpu6000(int argc, char *argv[])
 	/* read data - expect samples */
 	ret = read(fd, &buf, sizeof(buf));
 
-	if (ret < 3) {
-		printf("\tMPU-6000: read1 fail (%d)\n", ret);
+	if (ret != sizeof(buf)) {
+		printf("\tACCEL: read1 fail (%d)\n", ret);
 		return ERROR;
 
 	} else {
-		printf("\tMPU-6000 values: acc: x:%8.4f\ty:%8.4f\tz:%8.4f\n", (double)buf.x, (double)buf.y, (double)buf.z);//\tgyro: r:%d\tp:%d\ty:%d\n", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+		printf("\tACCEL accel: x:%8.4f\ty:%8.4f\tz:%8.4f m/s^2\n", (double)buf.x, (double)buf.y, (double)buf.z);
 	}
 
 	// /* wait at least 10ms, sensor should have data after no more than 2ms */
@@ -374,104 +149,118 @@ mpu6000(int argc, char *argv[])
 	/* XXX more tests here */
 
 	/* Let user know everything is ok */
-	printf("\tOK: MPU-6000 passed all tests successfully\n");
+	printf("\tOK: ACCEL passed all tests successfully\n");
 
 	return OK;
 }
 
 static int
-ms5611(int argc, char *argv[])
+gyro(int argc, char *argv[])
 {
-	printf("\tMS5611: test start\n");
+	printf("\tGYRO: test start\n");
 	fflush(stdout);
 
 	int		fd;
-	float	buf[3] = {0.0f, 0.0f, 0.0f};
+	struct gyro_report buf;
 	int		ret;
 
-	fd = open("/dev/ms5611", O_RDONLY);
+	fd = open("/dev/gyro", O_RDONLY);
 
 	if (fd < 0) {
-		printf("\tMS5611: open fail\n");
+		printf("\tGYRO: open fail, run <l3gd20 start> or <mpu6000 start> first.\n");
 		return ERROR;
 	}
 
-	for (int i = 0; i < 5; i++) {
-		/* read data - expect samples */
-		ret = read(fd, buf, sizeof(buf));
+	/* wait at least 5 ms, sensor should have data after that */
+	usleep(5000);
 
-		if (ret != sizeof(buf)) {
+	/* read data - expect samples */
+	ret = read(fd, &buf, sizeof(buf));
 
-			if ((int8_t)ret == -EAGAIN || (int8_t)ret == -EINPROGRESS) {
-				/* waiting for device to become ready, this is not an error */
-			} else {
-				printf("\tMS5611: read fail (%d)\n", ret);
-				close(fd);
-				return ERROR;
-			}
+	if (ret != sizeof(buf)) {
+		printf("\tGYRO: read fail (%d)\n", ret);
+		return ERROR;
 
-		} else {
-
-			/* hack for float printing */
-			int32_t pressure_int = buf[0];
-			int32_t altitude_int = buf[1];
-			int32_t temperature_int = buf[2];
-
-			printf("\tMS5611: pressure:%d.%03d mbar - altitude: %d.%02d meters - temp:%d.%02d deg celcius\n", pressure_int, (int)(buf[0] * 1000 - pressure_int * 1000), altitude_int, (int)(buf[1] * 100 - altitude_int * 100), temperature_int, (int)(buf[2] * 100 - temperature_int * 100));
-		}
-
-		/* wait at least 10ms, sensor should have data after no more than 6.5ms */
-		usleep(10000);
+	} else {
+		printf("\tGYRO rates: x:%8.4f\ty:%8.4f\tz:%8.4f rad/s\n", (double)buf.x, (double)buf.y, (double)buf.z);
 	}
 
-	close(fd);
-
 	/* Let user know everything is ok */
-	printf("\tOK: MS5611 passed all tests successfully\n");
+	printf("\tOK: GYRO passed all tests successfully\n");
 
 	return OK;
 }
 
 static int
-hmc5883l(int argc, char *argv[])
+mag(int argc, char *argv[])
 {
-	printf("\tHMC5883L: test start\n");
+	printf("\tMAG: test start\n");
 	fflush(stdout);
 
 	int		fd;
-	int16_t	buf[7] = {0, 0, 0};
+	struct mag_report buf;
 	int		ret;
 
-	fd = open("/dev/hmc5883l", O_RDONLY);
+	fd = open("/dev/mag", O_RDONLY);
 
 	if (fd < 0) {
-		printf("\tHMC5883L: open fail\n");
+		printf("\tMAG: open fail, run <hmc5883 start> or <lsm303 start> first.\n");
 		return ERROR;
 	}
 
-	int i;
+	/* wait at least 5 ms, sensor should have data after that */
+	usleep(5000);
 
-	for (i = 0; i < 5; i++) {
-		/* wait at least 7ms, sensor should have data after no more than 6.5ms */
-		usleep(7000);
+	/* read data - expect samples */
+	ret = read(fd, &buf, sizeof(buf));
 
-		/* read data - expect samples */
-		ret = read(fd, buf, sizeof(buf));
+	if (ret != sizeof(buf)) {
+		printf("\tMAG: read fail (%d)\n", ret);
+		return ERROR;
 
-		if (ret != sizeof(buf)) {
-			printf("\tHMC5883L: read1 fail (%d) values: x:%d\ty:%d\tz:%d\n", ret, buf[0], buf[1], buf[2]);
-			close(fd);
-			return ERROR;
-
-		} else {
-			printf("\tHMC5883L: x:%d\ty:%d\tz:%d\n", buf[0], buf[1], buf[2]);
-		}
+	} else {
+		printf("\tMAG values: x:%8.4f\ty:%8.4f\tz:%8.4f\n", (double)buf.x, (double)buf.y, (double)buf.z);
 	}
 
-	close(fd);
+	/* Let user know everything is ok */
+	printf("\tOK: MAG passed all tests successfully\n");
+
+	return OK;
+}
+
+static int
+baro(int argc, char *argv[])
+{
+	printf("\tBARO: test start\n");
+	fflush(stdout);
+
+	int		fd;
+	struct baro_report buf;
+	int		ret;
+
+	fd = open("/dev/baro", O_RDONLY);
+
+	if (fd < 0) {
+		printf("\tBARO: open fail, run <ms5611 start> or <lps331 start> first.\n");
+		return ERROR;
+	}
+
+	/* wait at least 5 ms, sensor should have data after that */
+	usleep(5000);
+
+	/* read data - expect samples */
+	ret = read(fd, &buf, sizeof(buf));
+
+	if (ret != sizeof(buf)) {
+		printf("\tBARO: read fail (%d)\n", ret);
+		return ERROR;
+
+	} else {
+		printf("\tBARO pressure: %8.4f mbar\talt: %8.4f m\ttemp: %8.4f deg C\n", (double)buf.pressure, (double)buf.altitude, (double)buf.temperature);
+	}
 
 	/* Let user know everything is ok */
-	printf("\tOK: HMC5883L passed all tests successfully\n");
+	printf("\tOK: BARO passed all tests successfully\n");
 
 	return OK;
 }

@@ -57,7 +57,7 @@
 #define		CW		(-1.0f)
 #define		CCW		(1.0f)
 
-namespace 
+namespace
 {
 
 /*
@@ -161,23 +161,49 @@ MultirotorMixer::mix(float *outputs, unsigned space)
 	float		max     = 0.0f;
 	float		fixup_scale;
 
+	/* use an output factor to prevent too strong control signals at low throttle */
+	float min_thrust = 0.05f;
+	float max_thrust = 1.0f;
+	float startpoint_full_control = 0.40f;
+	float output_factor;
+
+	/* keep roll, pitch and yaw control to 0 below min thrust */
+	if (thrust <= min_thrust) {
+		output_factor = 0.0f;
+	/* linearly increase the output factor from 0 to 1 between min_thrust and startpoint_full_control */
+	} else if (thrust < startpoint_full_control && thrust > min_thrust) {
+		output_factor = (thrust/max_thrust)/(startpoint_full_control-min_thrust);
+	/* and then stay at full control */
+	} else {
+		output_factor = max_thrust;
+	}
+
+	roll *= output_factor;
+	pitch *= output_factor;
+	yaw *= output_factor;
+
+
 	/* perform initial mix pass yielding un-bounded outputs */
 	for (unsigned i = 0; i < _rotor_count; i++) {
 		float tmp = roll  * _rotors[i].roll_scale +
 			    pitch * _rotors[i].pitch_scale +
 			    yaw   * _rotors[i].yaw_scale +
 			    thrust;
+
 		if (tmp > max)
 			max = tmp;
+
 		outputs[i] = tmp;
 	}
 
 	/* scale values into the -1.0 - 1.0 range */
 	if (max > 1.0f) {
 		fixup_scale = 2.0f / max;
+
 	} else {
 		fixup_scale = 2.0f;
 	}
+
 	for (unsigned i = 0; i < _rotor_count; i++)
 		outputs[i] = -1.0f + (outputs[i] * fixup_scale);
 

@@ -47,10 +47,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <err.h>
+#include <errno.h>
 
 #include <sys/stat.h>
 
-#include <arch/board/up_hrt.h>
+#include <drivers/drv_hrt.h>
 
 #include "systemlib/param/param.h"
 #include "systemlib/uthash/utarray.h"
@@ -189,6 +190,7 @@ param_notify_changes(void)
 	 */
 	if (param_topic == -1) {
 		param_topic = orb_advertise(ORB_ID(parameter_update), &pup);
+
 	} else {
 		orb_publish(ORB_ID(parameter_update), param_topic, &pup);
 	}
@@ -240,6 +242,25 @@ param_name(param_t param)
 		return param_info_base[param].name;
 
 	return NULL;
+}
+
+bool
+param_value_is_default(param_t param)
+{
+	return param_find_changed(param) ? false : true;
+}
+
+bool
+param_value_unsaved(param_t param)
+{
+	static struct param_wbuf_s *s;
+
+	s = param_find_changed(param);
+
+	if (s && s->unsaved)
+		return true;
+
+	return false;
 }
 
 enum param_type_e
@@ -330,8 +351,8 @@ param_get(param_t param, void *val)
 	return result;
 }
 
-int
-param_set(param_t param, const void *val)
+static int
+param_set_internal(param_t param, const void *val, bool mark_saved)
 {
 	int result = -1;
 	bool params_changed = false;
@@ -394,7 +415,7 @@ param_set(param_t param, const void *val)
 			goto out;
 		}
 
-		s->unsaved = true;
+		s->unsaved = !mark_saved;
 		params_changed = true;
 		result = 0;
 	}
@@ -412,6 +433,12 @@ out:
 	return result;
 }
 
+int
+param_set(param_t param, const void *val)
+{
+	return param_set_internal(param, val, false);
+}
+
 void
 param_reset(param_t param)
 {
@@ -426,10 +453,11 @@ param_reset(param_t param)
 
 		/* if we found one, erase it */
 		if (s != NULL) {
-			int pos = utarry_eltidx(param_values, s);
+			int pos = utarray_eltidx(param_values, s);
 			utarray_erase(param_values, pos, 1);
 		}
 	}
+
 	param_unlock();
 
 	if (s != NULL)
@@ -453,6 +481,81 @@ param_reset_all(void)
 	param_notify_changes();
 }
 
+static const char *param_default_file = "/eeprom/parameters";
+static char *param_user_file = NULL;
+
+int
+param_set_default_file(const char* filename)
+{
+	if (param_user_file != NULL) {
+		free(param_user_file);
+		param_user_file = NULL;
+	}
+	if (filename)
+		param_user_file = strdup(filename);
+	return 0;
+}
+
+const char *
+param_get_default_file(void)
+{
+	return (param_user_file != NULL) ? param_user_file : param_default_file;
+}
+
+int
+param_save_default(void)
+{
+	/* delete the file in case it exists */
+	unlink(param_get_default_file());
+
+	/* create the file */
+	int fd = open(param_get_default_file(), O_WRONLY | O_CREAT | O_EXCL);
+
+	if (fd < 0) {
+		warn("opening '%s' for writing failed", param_get_default_file());
+		return -1;
+	}
+
+	int result = param_export(fd, false);
+	close(fd);
+
+	if (result != 0) {
+		warn("error exporting parameters to '%s'", param_get_default_file());
+		unlink(param_get_default_file());
+		return -2;
+	}
+
+	return 0;
+}
+
+/**
+ * @return 0 on success, 1 if all params have not yet been stored, -1 if device open failed, -2 if writing parameters failed
+ */
+int
+param_load_default(void)
+{
+	int fd = open(param_get_default_file(), O_RDONLY);
+
+	if (fd < 0) {
+		/* no parameter file is OK, otherwise this is an error */
+		if (errno != ENOENT) {
+			warn("open '%s' for reading failed", param_get_default_file());
+			return -1;
+		}
+		return 1;
+	}
+
+	int result = param_load(fd);
+	close(fd);
+
+	if (result != 0) {
+		warn("error reading parameters from '%s'", param_get_default_file());
+		return -2;
+	}
+
+	return 0;
+}
+
 int
 param_export(int fd, bool only_unsaved)
 {
@@ -462,7 +565,7 @@ param_export(int fd, bool only_unsaved)
 
 	param_lock();
 
-	bson_encoder_init(&encoder, fd);
+	bson_encoder_init_file(&encoder, fd);
 
 	/* no modified parameters -> we are done */
 	if (param_values == NULL) {
@@ -535,6 +638,10 @@ out:
 	return result;
 }
 
+struct param_import_state {
+	bool mark_saved;
+};
+
 static int
 param_import_callback(bson_decoder_t decoder, void *private, bson_node_t node)
 {
@@ -542,13 +649,13 @@ param_import_callback(bson_decoder_t decoder, void *private, bson_node_t node)
 	int32_t i;
 	void *v, *tmp = NULL;
 	int result = -1;
+	struct param_import_state *state = (struct param_import_state *)private;
 
 	/*
 	 * EOO means the end of the parameter object. (Currently not supporting
 	 * nested BSON objects).
 	 */
 	if (node->type == BSON_EOO) {
-		*(bool *)private = true;
 		debug("end of parameters");
 		return 0;
 	}
@@ -569,7 +676,7 @@ param_import_callback(bson_decoder_t decoder, void *private, bson_node_t node)
 	 */
 
 	switch (node->type) {
-	case BSON_INT:
+	case BSON_INT32:
 		if (param_type(param) != PARAM_TYPE_INT32) {
 			debug("unexpected type for '%s", node->name);
 			goto out;
@@ -621,7 +728,7 @@ param_import_callback(bson_decoder_t decoder, void *private, bson_node_t node)
 		goto out;
 	}
 
-	if (param_set(param, v)) {
+	if (param_set_internal(param, v, state->mark_saved)) {
 		debug("error setting value for '%s'", node->name);
 		goto out;
 	}
@@ -642,26 +749,27 @@ out:
 	return result;
 }
 
-int
-param_import(int fd)
+static int
+param_import_internal(int fd, bool mark_saved)
 {
-	bool done;
 	struct bson_decoder_s decoder;
 	int result = -1;
+	struct param_import_state state;
 
-	if (bson_decoder_init(&decoder, fd, param_import_callback, &done)) {
+	if (bson_decoder_init_file(&decoder, fd, param_import_callback, &state)) {
 		debug("decoder init failed");
 		goto out;
 	}
 
-	done = false;
+	state.mark_saved = mark_saved;
 
 	do {
 		result = bson_decoder_next(&decoder);
 
-	} while(result > 0);
+	} while (result > 0);
 
 out:
+
 	if (result < 0)
 		debug("BSON error decoding parameters");
 
@@ -669,10 +777,16 @@ out:
 }
 
 int
+param_import(int fd)
+{
+	return param_import_internal(fd, false);
+}
+
+int
 param_load(int fd)
 {
 	param_reset_all();
-	return param_import(fd);
+	return param_import_internal(fd, true);
 }
 
 void

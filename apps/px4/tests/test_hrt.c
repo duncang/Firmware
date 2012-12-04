@@ -39,6 +39,7 @@
 #include <nuttx/config.h>
 
 #include <sys/types.h>
+#include <sys/time.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,8 +51,8 @@
 #include <unistd.h>
 
 #include <arch/board/board.h>
-#include <arch/board/up_hrt.h>
-#include <arch/board/drv_tone_alarm.h>
+#include <drivers/drv_hrt.h>
+#include <drivers/drv_tone_alarm.h>
 
 #include <nuttx/spi.h>
 
@@ -120,7 +121,6 @@ int test_ppm(int argc, char *argv[])
 
 int test_tone(int argc, char *argv[])
 {
-#ifdef CONFIG_TONE_ALARM
 	int fd, result;
 	unsigned long tone;
 
@@ -170,7 +170,6 @@ out:
 	if (fd >= 0)
 		close(fd);
 
-#endif
 	return 0;
 }
 

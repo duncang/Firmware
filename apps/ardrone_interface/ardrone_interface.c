@@ -51,7 +51,7 @@
 #include <time.h>
 #include <systemlib/err.h>
 #include <sys/prctl.h>
-#include <arch/board/up_hrt.h>
+#include <drivers/drv_hrt.h>
 #include <uORB/uORB.h>
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/actuator_controls.h>
@@ -117,7 +117,7 @@ int ardrone_interface_main(int argc, char *argv[])
 		ardrone_interface_task = task_spawn("ardrone_interface",
 						    SCHED_DEFAULT,
 						    SCHED_PRIORITY_MAX - 15,
-						    4096,
+						    2048,
 						    ardrone_interface_thread_main,
 						    (argv) ? (const char **)&argv[2] : (const char **)NULL);
 		exit(0);
@@ -286,7 +286,6 @@ int ardrone_interface_thread_main(int argc, char *argv[])
 
 	/* close uarts */
 	close(ardrone_write);
-	//ar_multiplexing_deinit(gpios);
 
 	/* enable UART, writes potentially an empty buffer, but multiplexing is disabled */
 	ardrone_write = ardrone_open_uart(device, &uart_config_original);
@@ -341,7 +340,7 @@ int ardrone_interface_thread_main(int argc, char *argv[])
 			}
 		}
 
-		if (counter % 16 == 0) {
+		if (counter % 24 == 0) {
 			if (led_counter == 0) ar_set_leds(ardrone_write, 0, 1, 0, 0, 0, 0, 0 , 0);
 
 			if (led_counter == 1) ar_set_leds(ardrone_write, 1, 1, 0, 0, 0, 0, 0 , 0);
@@ -372,7 +371,7 @@ int ardrone_interface_thread_main(int argc, char *argv[])
 		}
 
 		/* run at approximately 200 Hz */
-		usleep(5000);
+		usleep(4500);
 
 		counter++;
 	}

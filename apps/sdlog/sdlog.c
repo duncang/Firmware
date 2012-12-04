@@ -51,7 +51,7 @@
 #include <string.h>
 #include <systemlib/err.h>
 #include <unistd.h>
-#include <arch/board/up_hrt.h>
+#include <drivers/drv_hrt.h>
 
 #include <uORB/uORB.h>
 #include <uORB/topics/sensor_combined.h>
@@ -59,10 +59,13 @@
 #include <uORB/topics/vehicle_attitude_setpoint.h>
 #include <uORB/topics/actuator_outputs.h>
 #include <uORB/topics/actuator_controls.h>
+#include <uORB/topics/actuator_controls_effective.h>
 #include <uORB/topics/vehicle_command.h>
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_global_position.h>
 #include <uORB/topics/vehicle_gps_position.h>
+#include <uORB/topics/vehicle_vicon_position.h>
+#include <uORB/topics/optical_flow.h>
 
 #include <systemlib/systemlib.h>
 
@@ -72,6 +75,7 @@ static int deamon_task;				/**< Handle of deamon task / thread */
 static const int MAX_NO_LOGFOLDER = 999;	/**< Maximum number of log folders */
 
 static const char *mountpoint = "/fs/microsd";
+static const char *mfile_in = "/etc/logging/logconv.m";
 
 /**
  * SD log management function.
@@ -90,6 +94,13 @@ static void usage(const char *reason);
 
 static int file_exist(const char *filename);
 
+static int file_copy(const char* file_old, const char* file_new);
+
+/**
+ * Print the current status.
+ */
+static void print_sdlog_status(void);
+
 /**
  * Create folder for current logging session.
  */
@@ -102,6 +113,14 @@ usage(const char *reason)
 		fprintf(stderr, "%s\n", reason);
 	errx(1, "usage: sdlog {start|stop|status} [-p <additional params>]\n\n");
 }
+
+// XXX turn this into a C++ class
+unsigned sensor_combined_bytes = 0;
+unsigned actuator_outputs_bytes = 0;
+unsigned actuator_controls_bytes = 0;
+unsigned sysvector_bytes = 0;
+unsigned blackbox_file_bytes = 0;
+uint64_t starttime = 0;
 
 /**
  * The sd log deamon app only briefly exists to start
@@ -131,7 +150,6 @@ int sdlog_main(int argc, char *argv[])
 					 4096,
 					 sdlog_thread_main,
 					 (argv) ? (const char **)&argv[2] : (const char **)NULL);
-		thread_running = true;
 		exit(0);
 	}
 
@@ -145,7 +163,7 @@ int sdlog_main(int argc, char *argv[])
 
 	if (!strcmp(argv[1], "status")) {
 		if (thread_running) {
-			printf("\tsdlog is running\n");
+			print_sdlog_status();
 		} else {
 			printf("\tsdlog not started\n");
 		}
@@ -169,7 +187,17 @@ int create_logfolder(char* folder_path) {
 		/* the result is -1 if the folder exists */
 
 		if (mkdir_ret == 0) {
-			/* folder does not exist */
+			/* folder does not exist, success */
+
+			/* now copy the Matlab/Octave file */
+			char mfile_out[100];
+			sprintf(mfile_out, "%s/session%04u/run_to_plot_data.m", mountpoint, foldernumber);
+			int ret = file_copy(mfile_in, mfile_out);
+			if (!ret) {
+				warnx("copied m file to %s", mfile_out);
+			} else {
+				warnx("failed copying m file from %s to\n %s", mfile_in, mfile_out);
+			}
 			break;
 
 		} else if (mkdir_ret == -1) {
@@ -194,7 +222,7 @@ int create_logfolder(char* folder_path) {
 
 int sdlog_thread_main(int argc, char *argv[]) {
 
-	printf("[sdlog] starting\n");
+	warnx("starting\n");
 
 	if (file_exist(mountpoint) != OK) {
 		errx(1, "logging mount point %s not present, exiting.", mountpoint);
@@ -202,25 +230,20 @@ int sdlog_thread_main(int argc, char *argv[]) {
 
 	char folder_path[64];
 	if (create_logfolder(folder_path))
-		errx(1, "unable to create logging folder, exiting");
+		errx(1, "unable to create logging folder, exiting.");
 
 	/* create sensorfile */
 	int sensorfile = -1;
-	unsigned sensor_combined_bytes = 0;
 	int actuator_outputs_file = -1;
-	unsigned actuator_outputs_bytes = 0;
 	int actuator_controls_file = -1;
-	unsigned actuator_controls_bytes = 0;
 	int sysvector_file = -1;
-	unsigned sysvector_bytes = 0;
 	FILE *gpsfile;
-	unsigned blackbox_file_bytes = 0;
 	FILE *blackbox_file;
 	// FILE *vehiclefile;
 
 	char path_buf[64] = ""; // string to hold the path to the sensorfile
 
-	printf("[sdlog] logging to directory %s\n", folder_path);
+	warnx("logging to directory %s\n", folder_path);
 
 	/* set up file path: e.g. /mnt/sdcard/session0001/sensor_combined.bin */
 	sprintf(path_buf, "%s/%s.bin", folder_path, "sensor_combined");
@@ -275,10 +298,13 @@ int sdlog_thread_main(int argc, char *argv[]) {
 		struct vehicle_attitude_setpoint_s att_sp;
 		struct actuator_outputs_s act_outputs;
 		struct actuator_controls_s act_controls;
+		struct actuator_controls_effective_s act_controls_effective;
 		struct vehicle_command_s cmd;
 		struct vehicle_local_position_s local_pos;
 		struct vehicle_global_position_s global_pos;
 		struct vehicle_gps_position_s gps_pos;
+		struct vehicle_vicon_position_s vicon_pos;
+		struct optical_flow_s flow;
 	} buf;
 	memset(&buf, 0, sizeof(buf));
 
@@ -288,10 +314,13 @@ int sdlog_thread_main(int argc, char *argv[]) {
 		int att_sub;
 		int spa_sub;
 		int act_0_sub;
-		int controls0_sub;
+		int controls_0_sub;
+		int controls_effective_0_sub;
 		int local_pos_sub;
 		int global_pos_sub;
 		int gps_pos_sub;
+		int vicon_pos_sub;
+		int flow_sub;
 	} subs;
 
 	/* --- MANAGEMENT - LOGGING COMMAND --- */
@@ -333,8 +362,15 @@ int sdlog_thread_main(int argc, char *argv[]) {
 
 	/* --- ACTUATOR CONTROL VALUE --- */
 	/* subscribe to ORB for actuator control */
-	subs.controls0_sub = orb_subscribe(ORB_ID_VEHICLE_ATTITUDE_CONTROLS);
-	fds[fdsc_count].fd = subs.controls0_sub;
+	subs.controls_0_sub = orb_subscribe(ORB_ID_VEHICLE_ATTITUDE_CONTROLS);
+	fds[fdsc_count].fd = subs.controls_0_sub;
+	fds[fdsc_count].events = POLLIN;
+	fdsc_count++;
+
+	/* --- ACTUATOR CONTROL EFFECTIVE VALUE --- */
+	/* subscribe to ORB for actuator control */
+	subs.controls_effective_0_sub = orb_subscribe(ORB_ID_VEHICLE_ATTITUDE_CONTROLS_EFFECTIVE);
+	fds[fdsc_count].fd = subs.controls_effective_0_sub;
 	fds[fdsc_count].events = POLLIN;
 	fdsc_count++;
 
@@ -347,15 +383,29 @@ int sdlog_thread_main(int argc, char *argv[]) {
 
 	/* --- GLOBAL POSITION --- */
 	/* subscribe to ORB for global position */
-	subs.local_pos_sub = orb_subscribe(ORB_ID(vehicle_global_position));
+	subs.global_pos_sub = orb_subscribe(ORB_ID(vehicle_global_position));
 	fds[fdsc_count].fd = subs.global_pos_sub;
 	fds[fdsc_count].events = POLLIN;
 	fdsc_count++;
 
 	/* --- GPS POSITION --- */
 	/* subscribe to ORB for global position */
-	subs.local_pos_sub = orb_subscribe(ORB_ID(vehicle_gps_position));
+	subs.gps_pos_sub = orb_subscribe(ORB_ID(vehicle_gps_position));
 	fds[fdsc_count].fd = subs.gps_pos_sub;
+	fds[fdsc_count].events = POLLIN;
+	fdsc_count++;
+
+	/* --- VICON POSITION --- */
+	/* subscribe to ORB for vicon position */
+	subs.vicon_pos_sub = orb_subscribe(ORB_ID(vehicle_vicon_position));
+	fds[fdsc_count].fd = subs.vicon_pos_sub;
+	fds[fdsc_count].events = POLLIN;
+	fdsc_count++;
+
+	/* --- FLOW measurements --- */
+	/* subscribe to ORB for flow measurements */
+	subs.flow_sub = orb_subscribe(ORB_ID(optical_flow));
+	fds[fdsc_count].fd = subs.flow_sub;
 	fds[fdsc_count].events = POLLIN;
 	fdsc_count++;
 
@@ -372,13 +422,13 @@ int sdlog_thread_main(int argc, char *argv[]) {
 	 * set up poll to block for new data,
 	 * wait for a maximum of 1000 ms (1 second)
 	 */
-	const int timeout = 1000;
+	// const int timeout = 1000;
 
 	thread_running = true;
 
 	int poll_count = 0;
 
-	uint64_t starttime = hrt_absolute_time();
+	starttime = hrt_absolute_time();
 
 	while (!thread_should_exit) {
 
@@ -461,29 +511,38 @@ int sdlog_thread_main(int argc, char *argv[]) {
 
 		/* copy sensors raw data into local buffer */
 		orb_copy(ORB_ID(sensor_combined), subs.sensor_sub, &buf.raw);
-		orb_copy(ORB_ID_VEHICLE_ATTITUDE_CONTROLS, subs.controls0_sub, &buf.act_controls);
+		orb_copy(ORB_ID_VEHICLE_ATTITUDE_CONTROLS, subs.controls_0_sub, &buf.act_controls);
+		orb_copy(ORB_ID_VEHICLE_ATTITUDE_CONTROLS_EFFECTIVE, subs.controls_effective_0_sub, &buf.act_controls_effective);
 		/* copy actuator data into local buffer */
 		orb_copy(ORB_ID(actuator_outputs_0), subs.act_0_sub, &buf.act_outputs);
 		orb_copy(ORB_ID(vehicle_attitude_setpoint), subs.spa_sub, &buf.att_sp);
 		orb_copy(ORB_ID(vehicle_gps_position), subs.gps_pos_sub, &buf.gps_pos);
 		orb_copy(ORB_ID(vehicle_local_position), subs.local_pos_sub, &buf.local_pos);
 		orb_copy(ORB_ID(vehicle_global_position), subs.global_pos_sub, &buf.global_pos);
+		orb_copy(ORB_ID(vehicle_attitude), subs.att_sub, &buf.att);
+		orb_copy(ORB_ID(vehicle_vicon_position), subs.vicon_pos_sub, &buf.vicon_pos);
+		orb_copy(ORB_ID(optical_flow), subs.flow_sub, &buf.flow);
 
 		#pragma pack(push, 1)
 		struct {
-			uint64_t timestamp;
-			float gyro[3];
-			float accel[3];
-			float mag[3];
-			float baro;
-			float baro_alt;
-			float baro_temp;
-			float control[4];
-
-			float actuators[8];
-			float vbat;
-			float adc[3];
-			float local_pos[3];
+			uint64_t timestamp; //[us]
+			float gyro[3]; //[rad/s]
+			float accel[3]; //[m/s^2]
+			float mag[3]; //[gauss]
+			float baro; //pressure [millibar]
+			float baro_alt; //altitude above MSL [meter]
+			float baro_temp; //[degree celcius]
+			float control[4]; //roll, pitch, yaw [-1..1], thrust [0..1]
+			float actuators[8]; //motor 1-8, in motor units (PWM: 1000-2000,AR.Drone: 0-512)
+			float vbat; //battery voltage in [volt]
+			float adc[3]; //remaining auxiliary ADC ports [volt]
+			float local_position[3]; //tangent plane mapping into x,y,z [m]
+			int32_t gps_raw_position[3]; //latitude [degrees] north, longitude [degrees] east, altitude above MSL [millimeter]
+			float attitude[3]; //pitch, roll, yaw [rad]
+			float rotMatrix[9]; //unitvectors
+			float vicon[6];
+			float control_effective[4]; //roll, pitch, yaw [-1..1], thrust [0..1]
+			float flow[6]; // flow raw x, y, flow metric x, y, flow ground dist, flow quality
 		} sysvector = {
 			.timestamp = buf.raw.timestamp,
 			.gyro = {buf.raw.gyro_rad_s[0], buf.raw.gyro_rad_s[1], buf.raw.gyro_rad_s[2]},
@@ -497,22 +556,26 @@ int sdlog_thread_main(int argc, char *argv[]) {
 					buf.act_outputs.output[4], buf.act_outputs.output[5], buf.act_outputs.output[6], buf.act_outputs.output[7]},
 			.vbat = buf.raw.battery_voltage_v,
 			.adc = {buf.raw.adc_voltage_v[0], buf.raw.adc_voltage_v[1], buf.raw.adc_voltage_v[2]},
-			.local_pos = {buf.local_pos.x, buf.local_pos.y, buf.local_pos.z}
+			.local_position = {buf.local_pos.x, buf.local_pos.y, buf.local_pos.z},
+			.gps_raw_position = {buf.gps_pos.lat, buf.gps_pos.lon, buf.gps_pos.alt},
+			.attitude = {buf.att.pitch, buf.att.roll, buf.att.yaw},
+			.rotMatrix = {buf.att.R[0][0], buf.att.R[0][1], buf.att.R[0][2], buf.att.R[1][0], buf.att.R[1][1], buf.att.R[1][2], buf.att.R[2][0], buf.att.R[2][1], buf.att.R[2][2]},
+			.vicon = {buf.vicon_pos.x, buf.vicon_pos.y, buf.vicon_pos.z, buf.vicon_pos.roll, buf.vicon_pos.pitch, buf.vicon_pos.yaw},
+			.control_effective = {buf.act_controls_effective.control_effective[0], buf.act_controls_effective.control_effective[1], buf.act_controls_effective.control_effective[2], buf.act_controls_effective.control_effective[3]},
+			.flow = {buf.flow.flow_raw_x, buf.flow.flow_raw_y, buf.flow.flow_comp_x_m, buf.flow.flow_comp_y_m, buf.flow.ground_distance_m, buf.flow.quality}
 		};
 		#pragma pack(pop)
 
 		sysvector_bytes += write(sysvector_file, (const char*)&sysvector, sizeof(sysvector));
 
-		usleep(10000);
+		usleep(3500);   // roughly 150 Hz
 	}
 
-	unsigned bytes = sensor_combined_bytes + actuator_outputs_bytes + blackbox_file_bytes + actuator_controls_bytes;
-	float mebibytes = bytes / 1024.0f / 1024.0f;
-	float seconds = ((float)(hrt_absolute_time() - starttime)) / 1000000.0f;
+	fsync(sysvector_file);
 
-	printf("[sdlog] wrote %4.2f MiB (average %5.3f MiB/s).\n", (double)mebibytes, (double)(mebibytes / seconds));
+	print_sdlog_status();
 
-	printf("[sdlog] exiting.\n");
+	warnx("exiting.\n");
 
 	close(sensorfile);
 	close(actuator_outputs_file);
@@ -525,6 +588,15 @@ int sdlog_thread_main(int argc, char *argv[]) {
 	return 0;
 }
 
+void print_sdlog_status()
+{
+	unsigned bytes = sysvector_bytes + sensor_combined_bytes + actuator_outputs_bytes + blackbox_file_bytes + actuator_controls_bytes;
+	float mebibytes = bytes / 1024.0f / 1024.0f;
+	float seconds = ((float)(hrt_absolute_time() - starttime)) / 1000000.0f;
+
+	warnx("wrote %4.2f MiB (average %5.3f MiB/s).\n", (double)mebibytes, (double)(mebibytes / seconds));
+}
+
 /**
  * @return 0 if file exists
  */
@@ -533,4 +605,44 @@ int file_exist(const char *filename)
 	struct stat buffer;
 	return stat(filename, &buffer);
 }
+
+int file_copy(const char* file_old, const char* file_new)
+{
+	FILE *source, *target;
+	source = fopen(file_old, "r");
+	int ret = 0;
+ 
+	if( source == NULL )
+	{
+		warnx("failed opening input file to copy");
+		return 1;
+	}
+
+	target = fopen(file_new, "w");
+ 
+	if( target == NULL )
+	{
+		fclose(source);
+		warnx("failed to open output file to copy");
+		return 1;
+	}
+ 
+	char buf[128];
+	int nread;
+	while ((nread = fread(buf, 1, sizeof(buf), source)) > 0) {
+		int ret = fwrite(buf, 1, nread, target);
+		if (ret <= 0) {
+			warnx("error writing file");
+			ret = 1;
+			break;
+		}
+	}
+	fsync(fileno(target));
+
+	fclose(source);
+	fclose(target);
+
+   return ret;
+}
+
 

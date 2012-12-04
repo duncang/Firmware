@@ -19,7 +19,7 @@ echo "[init] eeprom"
 eeprom start
 if [ -f /eeprom/parameters ]
 then
-	eeprom load_param /eeprom/parameters
+	param load
 fi
  
 #
@@ -59,9 +59,9 @@ multirotor_att_control start
 ardrone_interface start
 
 #
-# Start logging
+# Start logging to microSD if we can
 #
-#sdlog start
+#sh /etc/init.d/rc.logging
 
 #
 # Start GPS capture

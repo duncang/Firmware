@@ -32,7 +32,9 @@
  ****************************************************************************/
 
 /**
- * @file Control channel input/output mixer and failsafe.
+ * @file mixer.c
+ *
+ * Control channel input/output mixer and failsafe.
  */
 
 #include <nuttx/config.h>
@@ -40,45 +42,23 @@
 
 #include <sys/types.h>
 #include <stdbool.h>
-
+#include <string.h>
 #include <assert.h>
 #include <errno.h>
+#include <unistd.h>
 #include <fcntl.h>
 
-#include <arch/board/drv_ppm_input.h>
-#include <arch/board/drv_pwm_servo.h>
-#include <arch/board/up_hrt.h>
+#include <drivers/drv_pwm_output.h>
+
+#include <systemlib/ppm_decode.h>
 
 #include "px4io.h"
-
-#ifdef CONFIG_DISABLE_MQUEUE
-# error Mixer requires message queues - set CONFIG_DISABLE_MQUEUE=n and try again
-#endif
-
-static mqd_t	input_queue;
-
-/*
- * Count of periodic calls in which we have no data.
- */
-static unsigned mixer_input_drops;
-#define MIXER_INPUT_DROP_LIMIT	10
 
 /*
  * Count of periodic calls in which we have no FMU input.
  */
 static unsigned fmu_input_drops;
-#define FMU_INPUT_DROP_LIMIT	10
-
-/*
- * HRT periodic call used to check for control input data.
- */
-static struct hrt_call mixer_input_call;
-
-/*
- * Mixer periodic tick.
- */
-static void	mixer_tick(void *arg);
-
+#define FMU_INPUT_DROP_LIMIT	20
 /*
  * Collect RC input data from the controller source(s).
  */
@@ -89,11 +69,8 @@ static void	mixer_get_rc_input(void);
  */
 static void	mixer_update(int mixer, uint16_t *inputs, int input_count);
 
-/* servo driver handle */
-int mixer_servo_fd;
-
 /* current servo arm/disarm state */
-bool mixer_servos_armed;
+bool mixer_servos_armed = false;
 
 /*
  * Each mixer consumes a set of inputs and produces a single output.
@@ -103,25 +80,8 @@ struct mixer {
 	/* XXX more config here */
 } mixers[IO_SERVO_COUNT];
 
-int
-mixer_init(const char *mq_name)
-{
-	/* open the control input queue; this should always exist */
-	input_queue = mq_open(mq_name, O_RDONLY | O_NONBLOCK);
-	ASSERTCODE((input_queue >= 0), A_INPUTQ_OPEN_FAIL);
-
-	/* open the servo driver */
-	mixer_servo_fd = open("/dev/pwm_servo", O_WRONLY);
-	ASSERTCODE((mixer_servo_fd >= 0), A_SERVO_OPEN_FAIL);
-
-	/* look for control data at 50Hz */
-	hrt_call_every(&mixer_input_call, 1000, 20000, mixer_tick, NULL);
-
-	return 0;
-}
-
-static void
-mixer_tick(void *arg)
+void
+mixer_tick(void)
 {
 	uint16_t *control_values;
 	int control_count;
@@ -164,72 +124,35 @@ mixer_tick(void *arg)
 		/* we have no control input */
 		control_count = 0;
 	}
-
 	/*
 	 * Tickle each mixer, if we have control data.
 	 */
 	if (control_count > 0) {
-		for (i = 0; i < PX4IO_OUTPUT_CHANNELS; i++) {
+		for (i = 0; i < IO_SERVO_COUNT; i++) {
 			mixer_update(i, control_values, control_count);
 
 			/*
 			 * If we are armed, update the servo output.
 			 */
-			if (system_state.armed)
-				ioctl(mixer_servo_fd, PWM_SERVO_SET(i), mixers[i].current_value);
+			if (system_state.armed && system_state.arm_ok)
+				up_pwm_servo_set(i, mixers[i].current_value);
 		}
-
 	}
 
 	/*
 	 * Decide whether the servos should be armed right now.
 	 */
-	should_arm = system_state.armed && (control_count > 0);
+
+	should_arm = system_state.armed && system_state.arm_ok && (control_count > 0) && system_state.mixer_use_fmu;
 	if (should_arm && !mixer_servos_armed) {
 		/* need to arm, but not armed */
-		ioctl(mixer_servo_fd, PWM_SERVO_ARM, 0);
+		up_pwm_servo_arm(true);
 		mixer_servos_armed = true;
 
 	} else if (!should_arm && mixer_servos_armed) {
-		/* armed but need to disarm*/
-		ioctl(mixer_servo_fd, PWM_SERVO_DISARM, 0);		
+		/* armed but need to disarm */
+		up_pwm_servo_arm(false);
 		mixer_servos_armed = false;
-	}
-}
-
-static void
-mixer_get_rc_input(void)
-{
-	ssize_t len;
-
-	/*
-	 * Pull channel data from the message queue into the system state structure.
-	 *
-	 */
-	len = mq_receive(input_queue, &system_state.rc_channel_data, sizeof(system_state.rc_channel_data), NULL);
-
-	/*
-	 * If we have data, update the count and status.
-	 */
-	if (len > 0) {
-		system_state.rc_channels = len / sizeof(system_state.rc_channel_data[0]);
-		mixer_input_drops = 0;
-
-		system_state.fmu_report_due = true;
-	} else {
-		/*
-		 * No data; count the 'frame drops' and once we hit the limit
-		 * assume that we have lost input.
-		 */
-		if (mixer_input_drops < MIXER_INPUT_DROP_LIMIT) {
-			mixer_input_drops++;
-
-			/* if we hit the limit, stop pretending we have input and let the FMU know */
-			if (mixer_input_drops == MIXER_INPUT_DROP_LIMIT) {
-				system_state.rc_channels = 0;
-				system_state.fmu_report_due = true;
-			}
-		}
 	}
 }
 
@@ -241,5 +164,32 @@ mixer_update(int mixer, uint16_t *inputs, int input_count)
 		mixers[mixer].current_value = inputs[mixer];
 	} else {
 		mixers[mixer].current_value = 0;
+	}
+}
+
+static void
+mixer_get_rc_input(void)
+{
+	/* if we haven't seen any new data in 200ms, assume we have lost input and tell FMU */
+	if ((hrt_absolute_time() - ppm_last_valid_decode) > 200000) {
+
+		/* input was ok and timed out, mark as update */
+		if (system_state.ppm_input_ok) {
+			system_state.ppm_input_ok = false;
+			system_state.fmu_report_due = true;
+		}
+		return;
+	}
+
+	/* mark PPM as valid */
+	system_state.ppm_input_ok = true;
+
+	/* check if no DSM and S.BUS data is available */
+	if (!system_state.sbus_input_ok && !system_state.dsm_input_ok) {
+		/* otherwise, copy channel data */
+		system_state.rc_channels = ppm_decoded_channels;
+		for (unsigned i = 0; i < ppm_decoded_channels; i++)
+			system_state.rc_channel_data[i] = ppm_buffer[i];
+		system_state.fmu_report_due = true;
 	}
 }

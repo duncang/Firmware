@@ -32,7 +32,9 @@
  ****************************************************************************/
 
 /**
- * @file Base class for devices attached via the I2C bus.
+ * @file i2c.cpp
+ *
+ * Base class for devices attached via the I2C bus.
  *
  * @todo Bus frequency changes; currently we do nothing with the value
  *       that is supplied.  Should we just depend on the bus knowing?
@@ -113,7 +115,7 @@ I2C::probe()
 }
 
 int
-I2C::transfer(uint8_t *send, unsigned send_len, uint8_t *recv, unsigned recv_len)
+I2C::transfer(const uint8_t *send, unsigned send_len, uint8_t *recv, unsigned recv_len)
 {
 	struct i2c_msg_s msgv[2];
 	unsigned msgs;
@@ -121,14 +123,14 @@ I2C::transfer(uint8_t *send, unsigned send_len, uint8_t *recv, unsigned recv_len
 	unsigned tries = 0;
 
 	do {
-	//	debug("transfer out %p/%u  in %p/%u", send, send_len, recv, recv_len);
+		//	debug("transfer out %p/%u  in %p/%u", send, send_len, recv, recv_len);
 
 		msgs = 0;
 
 		if (send_len > 0) {
 			msgv[msgs].addr = _address;
 			msgv[msgs].flags = 0;
-			msgv[msgs].buffer = send;
+			msgv[msgs].buffer = const_cast<uint8_t *>(send);
 			msgv[msgs].length = send_len;
 			msgs++;
 		}
@@ -144,7 +146,7 @@ I2C::transfer(uint8_t *send, unsigned send_len, uint8_t *recv, unsigned recv_len
 		if (msgs == 0)
 			return -EINVAL;
 
-		/* 
+		/*
 		 * I2C architecture means there is an unavoidable race here
 		 * if there are any devices on the bus with a different frequency
 		 * preference.  Really, this is pointless.
@@ -154,7 +156,7 @@ I2C::transfer(uint8_t *send, unsigned send_len, uint8_t *recv, unsigned recv_len
 
 		if (ret == OK)
 			break;
-		
+
 		// reset the I2C bus to unwedge on error
 		up_i2creset(_dev);
 

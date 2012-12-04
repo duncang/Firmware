@@ -168,6 +168,7 @@ mixer_load_simple(Mixer::ControlCallback control_cb, uintptr_t cb_handle, int fd
 
 	/* let's assume we're going to read a simple mixer */
 	mixinfo = (mixer_simple_s *)malloc(MIXER_SIMPLE_SIZE(inputs));
+	mixinfo->control_count = inputs;
 
 	/* first, get the output scaler */
 	ret = mixer_getline(fd, buf, sizeof(buf));
@@ -224,29 +225,35 @@ mixer_load_multirotor(Mixer::ControlCallback control_cb, uintptr_t cb_handle, co
 
 	if (!strcmp(geomname, "4+")) {
 		geometry = MultirotorMixer::QUAD_PLUS;
+
 	} else if (!strcmp(geomname, "4x")) {
 		geometry = MultirotorMixer::QUAD_X;
+
 	} else if (!strcmp(geomname, "6+")) {
 		geometry = MultirotorMixer::HEX_PLUS;
+
 	} else if (!strcmp(geomname, "6x")) {
 		geometry = MultirotorMixer::HEX_X;
+
 	} else if (!strcmp(geomname, "8+")) {
 		geometry = MultirotorMixer::OCTA_PLUS;
+
 	} else if (!strcmp(geomname, "8x")) {
 		geometry = MultirotorMixer::OCTA_X;
+
 	} else {
 		debug("unrecognised geometry '%s'", geomname);
 		return nullptr;
 	}
 
 	return new MultirotorMixer(
-		control_cb,
-		cb_handle,
-		geometry,
-		s[0] / 10000.0f,
-		s[1] / 10000.0f,
-		s[2] / 10000.0f,
-		s[3] / 10000.0f);
+		       control_cb,
+		       cb_handle,
+		       geometry,
+		       s[0] / 10000.0f,
+		       s[1] / 10000.0f,
+		       s[2] / 10000.0f,
+		       s[3] / 10000.0f);
 }
 
 int

@@ -39,14 +39,11 @@
  * messages and the corresponding complexity involved.
  */
 
-/*
- * XXX MUST BE KEPT IN SYNC WITH THE VERSION IN PX4FMU UNTIL
- * TREES ARE MERGED.
- */
+#pragma once
 
 #define PX4IO_OUTPUT_CHANNELS	8
 #define PX4IO_INPUT_CHANNELS	12
-#define PX4IO_RELAY_CHANNELS	2
+#define PX4IO_RELAY_CHANNELS	4
 
 #pragma pack(push, 1)
 
@@ -58,6 +55,14 @@ struct px4io_command {
 	uint16_t	servo_command[PX4IO_OUTPUT_CHANNELS];
 	bool		relay_state[PX4IO_RELAY_CHANNELS];
 	bool		arm_ok;
+};
+
+/* config message from FMU to IO */
+struct px4io_config {
+	uint16_t f2i_config_magic;
+#define F2I_CONFIG_MAGIC 0x6366
+
+	/* XXX currently nothing here */
 };
 
 /* report from IO to FMU */

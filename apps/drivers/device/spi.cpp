@@ -32,7 +32,9 @@
  ****************************************************************************/
 
 /**
- * @file Base class for devices connected via SPI.
+ * @file spi.cpp
+ *
+ * Base class for devices connected via SPI.
  *
  * @todo Work out if caching the mode/frequency would save any time.
  *
@@ -84,7 +86,7 @@ SPI::init()
 {
 	int ret = OK;
 
-	// attach to the spi bus
+	/* attach to the spi bus */
 	if (_dev == nullptr)
 		_dev = up_spiinitialize(_bus);
 
@@ -94,7 +96,10 @@ SPI::init()
 		goto out;
 	}
 
-	// call the probe function to check whether the device is present
+	/* deselect device to ensure high to low transition of pin select */
+	SPI_SELECT(_dev, _device, false);
+
+	/* call the probe function to check whether the device is present */
 	ret = probe();
 
 	if (ret != OK) {
@@ -102,7 +107,7 @@ SPI::init()
 		goto out;
 	}
 
-	// do base class init, which will create the device node, etc.
+	/* do base class init, which will create the device node, etc. */
 	ret = CDev::init();
 
 	if (ret != OK) {
@@ -110,7 +115,7 @@ SPI::init()
 		goto out;
 	}
 
-	// tell the workd where we are
+	/* tell the workd where we are */
 	log("on SPI bus %d at %d", _bus, _device);
 
 out:
@@ -134,6 +139,7 @@ SPI::transfer(uint8_t *send, uint8_t *recv, unsigned len)
 	/* do common setup */
 	if (!up_interrupt_context())
 		SPI_LOCK(_dev, true);
+
 	SPI_SETFREQUENCY(_dev, _frequency);
 	SPI_SETMODE(_dev, _mode);
 	SPI_SETBITS(_dev, 8);
@@ -144,6 +150,7 @@ SPI::transfer(uint8_t *send, uint8_t *recv, unsigned len)
 
 	/* and clean up */
 	SPI_SELECT(_dev, _device, false);
+
 	if (!up_interrupt_context())
 		SPI_LOCK(_dev, false);
 

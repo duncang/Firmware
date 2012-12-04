@@ -1,7 +1,6 @@
 /****************************************************************************
  *
  *   Copyright (C) 2012 PX4 Development Team. All rights reserved.
- *   Author: @author Lorenz Meier <lm@inf.ethz.ch>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -72,8 +71,6 @@ test_param(int argc, char *argv[])
 		errx(1, "failed to re-read test parameter");
 	if ((uint32_t)val != 0xa5a5a5a5)
 		errx(1, "parameter value mismatch after write");
-
-	param_export(-1, false);
 
 	warnx("parameter test PASS");
 

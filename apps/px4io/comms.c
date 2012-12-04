@@ -32,9 +32,10 @@
  ****************************************************************************/
 
 /**
- * @file FMU communication for the PX4IO module.
+ * @file comms.c
+ *
+ * FMU communication for the PX4IO module.
  */
-
 
 #include <nuttx/config.h>
 #include <stdio.h>
@@ -45,92 +46,178 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <poll.h>
+#include <termios.h>
 
 #include <nuttx/clock.h>
 
-#include <arch/board/up_hrt.h>
+#include <drivers/drv_hrt.h>
 #include <systemlib/hx_stream.h>
 #include <systemlib/perf_counter.h>
 
+#define DEBUG
 #include "px4io.h"
 
 #define FMU_MIN_REPORT_INTERVAL	  5000	/*  5ms */
 #define FMU_MAX_REPORT_INTERVAL	100000	/* 100ms */
 
+int frame_rx;
+int frame_bad;
+
 static int			fmu_fd;
 static hx_stream_t		stream;
-
 static struct px4io_report	report;
 
 static void			comms_handle_frame(void *arg, const void *buffer, size_t length);
 
-void
+static void
 comms_init(void)
 {
-	fmu_fd = open("/dev/ttyS1", O_RDWR | O_NONBLOCK);
-	if (fmu_fd < 0)
-		lib_lowprintf("COMMS: fmu open failed %d\n", errno);
-
+	/* initialise the FMU interface */
+	fmu_fd = open("/dev/ttyS1", O_RDWR);
 	stream = hx_stream_init(fmu_fd, comms_handle_frame, NULL);
 
+	/* default state in the report to FMU */
 	report.i2f_magic = I2F_MAGIC;
+
+	struct termios t;
+
+	/* 115200bps, no parity, one stop bit */
+	tcgetattr(fmu_fd, &t);
+	cfsetspeed(&t, 115200);
+	t.c_cflag &= ~(CSTOPB | PARENB);
+	tcsetattr(fmu_fd, TCSANOW, &t);
 }
 
 void
-comms_check(void)
+comms_main(void)
 {
-	static hrt_abstime last_report_time;
-	hrt_abstime now, delta;
-	uint8_t c;
+	comms_init();
 
-	/* should we send a report to the FMU? */
-	now = hrt_absolute_time();
-	delta = now - last_report_time;
-	if ((delta > FMU_MIN_REPORT_INTERVAL) && 
-		(system_state.fmu_report_due || (delta > FMU_MAX_REPORT_INTERVAL))) {
+	struct pollfd fds;
+	fds.fd = fmu_fd;
+	fds.events = POLLIN;
+	debug("FMU: ready");
 
-		system_state.fmu_report_due = false;
-		last_report_time = now;
+	for (;;) {
+		/* wait for serial data, but no more than 100ms */
+		poll(&fds, 1, 100);
 
-		/* populate the report */
-		for (unsigned i = 0; i < system_state.rc_channels; i++)
-			report.rc_channel[i] = system_state.rc_channel_data[i];
-		report.channel_count = system_state.rc_channels;
-		report.armed = system_state.armed;
+		/*
+		 * Pull bytes from FMU and feed them to the HX engine.
+		 * Limit the number of bytes we actually process on any one iteration.
+		 */
+		if (fds.revents & POLLIN) {
+			char buf[32];
+			ssize_t count = read(fmu_fd, buf, sizeof(buf));
+			for (int i = 0; i < count; i++)
+				hx_stream_rx(stream, buf[i]);
+		}
 
-		/* and send it */
-		hx_stream_send(stream, &report, sizeof(report));
+		/*
+		 * Decide if it's time to send an update to the FMU.
+		 */
+		static hrt_abstime last_report_time;
+		hrt_abstime now, delta;
+
+		/* should we send a report to the FMU? */
+		now = hrt_absolute_time();
+		delta = now - last_report_time;
+		if ((delta > FMU_MIN_REPORT_INTERVAL) && 
+		    (system_state.fmu_report_due || (delta > FMU_MAX_REPORT_INTERVAL))) {
+
+			system_state.fmu_report_due = false;
+			last_report_time = now;
+
+			/* populate the report */
+			for (int i = 0; i < system_state.rc_channels; i++)
+				report.rc_channel[i] = system_state.rc_channel_data[i];
+
+			if (system_state.sbus_input_ok || system_state.dsm_input_ok || system_state.ppm_input_ok) {
+				report.channel_count = system_state.rc_channels;
+			} else {
+				report.channel_count = 0;
+			}
+			
+			report.armed = system_state.armed;
+
+			/* and send it */
+			hx_stream_send(stream, &report, sizeof(report));
+		}
 	}
-
-	/* feed any received bytes to the HDLC receive engine */
-	while (read(fmu_fd, &c, 1) == 1)
-		hx_stream_rx(stream, c);
 }
 
 static void
-comms_handle_frame(void *arg, const void *buffer, size_t length)
+comms_handle_config(const void *buffer, size_t length)
 {
-	struct px4io_command *cmd;
+	const struct px4io_config *cfg = (struct px4io_config *)buffer;
 
-	/* make sure it's what we are expecting */
-	if (length != sizeof(struct px4io_command))
+	if (length != sizeof(*cfg)) {
+		frame_bad++;
 		return;
+	}
 
-	cmd = (struct px4io_command *)buffer;
+	frame_rx++;
+}
+
+static void
+comms_handle_command(const void *buffer, size_t length)
+{
+	const struct px4io_command *cmd = (struct px4io_command *)buffer;
+
+	if (length != sizeof(*cmd)) {
+		frame_bad++;
+		return;
+	}
+
+	frame_rx++;
+	irqstate_t flags = irqsave();
 
 	/* fetch new PWM output values */
 	for (unsigned i = 0; i < PX4IO_OUTPUT_CHANNELS; i++)
 		system_state.fmu_channel_data[i] = cmd->servo_command[i];
 
+	/* if the IO is armed and the FMU gets disarmed, the IO must also disarm */
+	if(system_state.arm_ok && !cmd->arm_ok) {
+		system_state.armed = false;
+	}
+
 	system_state.arm_ok = cmd->arm_ok;
 	system_state.mixer_use_fmu = true;
 	system_state.fmu_data_received = true;
 
+
 	/* handle changes signalled by FMU */
-	if (!system_state.arm_ok && system_state.armed)
-		system_state.armed = false;
+//	if (!system_state.arm_ok && system_state.armed)
+//		system_state.armed = false;
 
 	/* XXX do relay changes here */	
 	for (unsigned i = 0; i < PX4IO_RELAY_CHANNELS; i++)
 		system_state.relays[i] = cmd->relay_state[i];
+
+	irqrestore(flags);
 }
+
+
+static void
+comms_handle_frame(void *arg, const void *buffer, size_t length)
+{
+	const uint16_t *type = (const uint16_t *)buffer;
+
+
+	/* make sure it's what we are expecting */
+	if (length > 2) {
+		switch (*type) {
+		case F2I_MAGIC:
+			comms_handle_command(buffer, length);
+			break;
+		case F2I_CONFIG_MAGIC:
+			comms_handle_config(buffer, length);
+			break;
+		default:
+		    	frame_bad++;
+			break;
+		}
+	}
+}
+

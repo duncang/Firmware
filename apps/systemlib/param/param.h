@@ -122,6 +122,20 @@ __EXPORT int		param_get_index(param_t param);
 __EXPORT const char	*param_name(param_t param);
 
 /**
+ * Test whether a parameter's value has changed from the default.
+ *
+ * @return		If true, the parameter's value has not been changed from the default.
+ */
+__EXPORT bool		param_value_is_default(param_t param);
+
+/**
+ * Test whether a parameter's value has been changed but not saved.
+ *
+ * @return		If true, the parameter's value has not been saved.
+ */
+__EXPORT bool		param_value_unsaved(param_t param);
+
+/**
  * Obtain the type of a parameter.
  *
  * @param param		A handle returned by param_find or passed by param_foreach.
@@ -160,7 +174,8 @@ __EXPORT int		param_set(param_t param, const void *val);
 /**
  * Reset a parameter to its default value.
  *
- * This function frees any storage used by struct parameters, but scalar parameters 
+ * This function frees any storage used by struct parameters, and returns the parameter
+ * to its default value.
  *
  * @param param		A handle returned by param_find or passed by param_foreach.
  */
@@ -218,6 +233,40 @@ __EXPORT int		param_load(int fd);
  *			been changed from the default.
  */
 __EXPORT void		param_foreach(void (*func)(void *arg, param_t param), void *arg, bool only_changed);
+
+/**
+ * Set the default parameter file name.
+ *
+ * @param filename	Path to the default parameter file.  The file is not require to
+ *			exist.
+ * @return		Zero on success.
+ */
+__EXPORT int 		param_set_default_file(const char* filename);
+
+/**
+ * Get the default parameter file name.
+ *
+ * @return		The path to the current default parameter file; either as
+ *			a result of a call to param_set_default_file, or the 
+ *			built-in default.
+ */
+__EXPORT const char*	param_get_default_file(void);
+
+/**
+ * Save parameters to the default file.
+ *
+ * This function saves all parameters with non-default values.
+ *
+ * @return		Zero on success.
+ */
+__EXPORT int 		param_save_default(void);
+
+/**
+ * Load parameters from the default parameter file.
+ *
+ * @return		Zero on success.
+ */
+__EXPORT int 		param_load_default(void);
 
 /*
  * Macros creating static parameter definitions.

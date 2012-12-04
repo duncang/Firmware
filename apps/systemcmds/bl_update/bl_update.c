@@ -1,7 +1,6 @@
 /****************************************************************************
  *
  *   Copyright (C) 2012 PX4 Development Team. All rights reserved.
- *   Author: Lorenz Meier <lm@inf.ethz.ch>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -51,7 +50,6 @@
 #include <arch/board/board.h>
 
 #include "systemlib/systemlib.h"
-#include "systemlib/param/param.h"
 #include "systemlib/err.h"
 
 __EXPORT int bl_update_main(int argc, char *argv[]);
@@ -68,10 +66,12 @@ bl_update_main(int argc, char *argv[])
 		setopt();
 
 	int fd = open(argv[1], O_RDONLY);
+
 	if (fd < 0)
 		err(1, "open %s", argv[1]);
 
 	struct stat s;
+
 	if (stat(argv[1], &s) < 0)
 		err(1, "stat %s", argv[1]);
 
@@ -80,14 +80,17 @@ bl_update_main(int argc, char *argv[])
 		errx(1, "%s: file too large", argv[1]);
 
 	uint8_t *buf = malloc(s.st_size);
+
 	if (buf == NULL)
 		errx(1, "failed to allocate %u bytes for firmware buffer", s.st_size);
 
 	if (read(fd, buf, s.st_size) != s.st_size)
 		err(1, "firmware read error");
+
 	close(fd);
 
 	uint32_t *hdr = (uint32_t *)buf;
+
 	if ((hdr[0] < 0x20000000) ||			/* stack not below RAM */
 	    (hdr[0] > (0x20000000 + (128 * 1024))) ||	/* stack not above RAM */
 	    (hdr[1] < 0x08000000) ||			/* entrypoint not below flash */
@@ -124,6 +127,7 @@ bl_update_main(int argc, char *argv[])
 	/* wait for the operation to complete */
 	while (*sr & 0x1000) {
 	}
+
 	if (*sr & 0xf2) {
 		warnx("WARNING: erase error 0x%02x", *sr);
 		goto flash_end;
@@ -149,6 +153,7 @@ bl_update_main(int argc, char *argv[])
 		/* wait for the operation to complete */
 		while (*sr & 0x1000) {
 		}
+
 		if (*sr & 0xf2) {
 			warnx("WARNING: program error 0x%02x", *sr);
 			goto flash_end;
@@ -204,6 +209,7 @@ setopt(void)
 
 	if ((*optcr & opt_mask) == opt_bits)
 		errx(0, "option bits set");
+
 	errx(1, "option bits setting failed; readback 0x%04x", *optcr);
 
 }

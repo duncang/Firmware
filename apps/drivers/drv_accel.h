@@ -83,7 +83,7 @@ ORB_DECLARE(sensor_accel);
 /*
  * ioctl() definitions
  *
- * Accelerometer drivers also implement the generic sensor driver 
+ * Accelerometer drivers also implement the generic sensor driver
  * interfaces from drv_sensor.h
  */
 
@@ -114,5 +114,8 @@ ORB_DECLARE(sensor_accel);
 
 /** get the current accel measurement range in g */
 #define ACCELIOCGRANGE		_ACCELIOC(8)
+
+/** get the result of a sensor self-test */
+#define ACCELIOCSELFTEST	_ACCELIOC(9)
 
 #endif /* _DRV_ACCEL_H */

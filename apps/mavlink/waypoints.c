@@ -40,11 +40,14 @@
  * MAVLink waypoint protocol implementation (BSD-relicensed).
  */
 
-#include "waypoints.h"
 #include <math.h>
 #include <sys/prctl.h>
 #include <unistd.h>
 #include <stdio.h>
+
+#include "missionlib.h"
+#include "waypoints.h"
+#include "util.h"
 
 #ifndef FM_PI
 #define FM_PI 3.1415926535897932384626433832795f
@@ -52,15 +55,6 @@
 
 bool debug = false;
 bool verbose = false;
-
-extern mavlink_wpm_storage *wpm;
-
-extern void mavlink_missionlib_send_message(mavlink_message_t *msg);
-extern void mavlink_missionlib_send_gcs_string(const char *string);
-extern uint64_t mavlink_missionlib_get_system_timestamp(void);
-extern void mavlink_missionlib_current_waypoint_changed(uint16_t index, float param1,
-		float param2, float param3, float param4, float param5_lat_x,
-		float param6_lon_y, float param7_alt_z, uint8_t frame, uint16_t command);
 
 
 #define MAVLINK_WPM_NO_PRINTF
@@ -366,7 +360,7 @@ void check_waypoints_reached(uint64_t now, const struct vehicle_global_position_
 		float dist = -1.0f;
 
 		if (coordinate_frame == (int)MAV_FRAME_GLOBAL) {
-			dist = mavlink_wpm_distance_to_point_global_wgs84(wpm->current_active_wp_id, global_pos->lat, global_pos->lon, global_pos->alt);
+			dist = mavlink_wpm_distance_to_point_global_wgs84(wpm->current_active_wp_id, (float)global_pos->lat * 1e-7f, (float)global_pos->lon * 1e-7f, global_pos->alt);
 
 		} else if (coordinate_frame == (int)MAV_FRAME_GLOBAL_RELATIVE_ALT) {
 			dist = mavlink_wpm_distance_to_point_global_wgs84(wpm->current_active_wp_id, global_pos->lat, global_pos->lon, global_pos->relative_alt);
@@ -382,14 +376,13 @@ void check_waypoints_reached(uint64_t now, const struct vehicle_global_position_
 		if (dist >= 0.f && dist <= orbit /*&& wpm->yaw_reached*/) { //TODO implement yaw
 			wpm->pos_reached = true;
 
-			if (counter % 10 == 0)
+			if (counter % 100 == 0)
 				printf("Setpoint reached: %0.4f, orbit: %.4f\n", dist, orbit);
 		}
-
 //		else
 //		{
 //			if(counter % 100 == 0)
-//				printf("Setpoint not reached yet: %0.4f, orbit: %.4f\n",dist,orbit);
+//				printf("Setpoint not reached yet: %0.4f, orbit: %.4f, coordinate frame: %d\n",dist, orbit, coordinate_frame);
 //		}
 	}
 
