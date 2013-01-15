@@ -72,6 +72,6 @@ mavlink start -d /dev/ttyS1 -b 57600
 #
 # Start logging to microSD if we can
 #
-sh /etc/init.d/rc.logging
+#sh /etc/init.d/rc.logging
 
 echo "[init] startup done"

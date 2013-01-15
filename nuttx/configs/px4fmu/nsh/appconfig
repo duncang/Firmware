@@ -69,7 +69,7 @@ CONFIGURED_APPS += systemcmds/delay_test
 
 # Tutorial code from
 # https://pixhawk.ethz.ch/px4/dev/hello_sky
-CONFIGURED_APPS += px4_simple_app
+#CONFIGURED_APPS += px4_simple_app
 
 # Tutorial code from
 # https://pixhawk.ethz.ch/px4/dev/deamon
