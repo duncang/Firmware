@@ -318,9 +318,11 @@ handle_message(mavlink_message_t *msg)
 			static uint16_t hil_frames = 0;
 			static uint64_t old_timestamp = 0;
 
+			/* sensors general */
+			hil_sensors.timestamp = imu.time_usec;
+
 			/* hil gyro */
 			static const float mrad2rad = 1.0e-3f;
-			hil_sensors.timestamp = timestamp;
 			hil_sensors.gyro_counter = hil_counter;
 			hil_sensors.gyro_raw[0] = imu.xgyro;
 			hil_sensors.gyro_raw[1] = imu.ygyro;
@@ -367,8 +369,8 @@ handle_message(mavlink_message_t *msg)
 			hil_frames += 1 ;
 
 			// output
-			if ((timestamp - old_timestamp) > 1000000) {
-				printf("receiving hil imu at %d hz\n", hil_frames);
+			if ((timestamp - old_timestamp) > 10000000) {
+				printf("receiving hil imu at %d hz\n", hil_frames/10);
 				old_timestamp = timestamp;
 				hil_frames = 0;
 			}
@@ -412,8 +414,8 @@ handle_message(mavlink_message_t *msg)
 			hil_frames += 1 ;
 
 			// output
-			if ((timestamp - old_timestamp) > 1000000) {
-				printf("receiving hil gps at %d hz\n", hil_frames);
+			if ((timestamp - old_timestamp) > 10000000) {
+				printf("receiving hil gps at %d hz\n", hil_frames/10);
 				old_timestamp = timestamp;
 				hil_frames = 0;
 			}
@@ -428,6 +430,9 @@ handle_message(mavlink_message_t *msg)
 			static uint16_t hil_counter = 0;
 			static uint16_t hil_frames = 0;
 			static uint64_t old_timestamp = 0;
+
+			/* sensors general */
+			hil_sensors.timestamp = press.time_usec;
 
 			/* baro */
 			/* TODO, set ground_press/ temp during calib */
@@ -454,8 +459,8 @@ handle_message(mavlink_message_t *msg)
 			hil_frames += 1 ;
 
 			// output
-			if ((timestamp - old_timestamp) > 1000000) {
-				printf("receiving hil pressure at %d hz\n", hil_frames);
+			if ((timestamp - old_timestamp) > 10000000) {
+				printf("receiving hil pressure at %d hz\n", hil_frames/10);
 				old_timestamp = timestamp;
 				hil_frames = 0;
 			}
@@ -582,12 +587,12 @@ receive_thread(void *arg)
 		struct pollfd fds[] = { { .fd = uart_fd, .events = POLLIN } };
 
 		if (poll(fds, 1, timeout) > 0) {
-			/* non-blocking read */
-			size_t nread = read(uart_fd, buf, sizeof(buf));
-			ASSERT(nread > 0)
+			/* non-blocking read. read may return negative values */
+			ssize_t nread = read(uart_fd, buf, sizeof(buf));
 
-			for (size_t i = 0; i < nread; i++) {
-				if (mavlink_parse_char(chan, buf[i], &msg, &status)) { //parse the char
+			/* if read failed, this loop won't execute */
+			for (ssize_t i = 0; i < nread; i++) {
+				if (mavlink_parse_char(chan, buf[i], &msg, &status)) {
 					/* handle generic messages and commands */
 					handle_message(&msg);
 
