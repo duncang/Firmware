@@ -442,7 +442,8 @@ int mavlink_open_uart(int baud, const char *uart_name, struct termios *uart_conf
 	int termios_state;
 	*is_usb = false;
 
-	if (strcmp(uart_name, "/dev/ttyACM0") != OK) {
+	/* make some wild guesses including that USB serial is indicated by either /dev/ttyACM0 or /dev/console */
+	if (strcmp(uart_name, "/dev/ttyACM0") != OK && strcmp(uart_name, "/dev/console") != OK) {
 		/* Back up the original uart configuration to restore it after exit */
 		if ((termios_state = tcgetattr(uart, uart_config_original)) < 0) {
 			fprintf(stderr, "[mavlink] ERROR getting baudrate / termios config for %s: %d\n", uart_name, termios_state);
@@ -625,7 +626,9 @@ int mavlink_thread_main(int argc, char *argv[])
 		/* 20 Hz / 50 ms */
 		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_NAMED_VALUE_FLOAT, 10);
 		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_SERVO_OUTPUT_RAW, 50);
-		/* 2 Hz */
+		/* 10 Hz */
+		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_GPS_RAW_INT, 100);
+		/* 10 Hz */
 		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_MANUAL_CONTROL, 100);
 
 	} else if (baudrate >= 115200) {
@@ -634,8 +637,10 @@ int mavlink_thread_main(int argc, char *argv[])
 		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_RAW_IMU, 50);
 		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_ATTITUDE, 50);
 		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_NAMED_VALUE_FLOAT, 50);
-		/* 5 Hz / 100 ms */
+		/* 5 Hz / 200 ms */
 		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_SERVO_OUTPUT_RAW, 200);
+		/* 5 Hz / 200 ms */
+		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_GPS_RAW_INT, 200);
 		/* 2 Hz */
 		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_MANUAL_CONTROL, 500);
 
@@ -651,6 +656,8 @@ int mavlink_thread_main(int argc, char *argv[])
 		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_SERVO_OUTPUT_RAW, 500);
 		/* 2 Hz */
 		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_MANUAL_CONTROL, 500);
+		/* 2 Hz */
+		set_mavlink_interval_limit(&mavlink_subs, MAVLINK_MSG_ID_GPS_RAW_INT, 500);
 
 	} else {
 		/* very low baud rate, limit to 1 Hz / 1000 ms */
