@@ -95,7 +95,7 @@ int px4_simple_app_main(int argc, char *argv[])
 			{
 				struct sensor_combined_s raw;
 				orb_copy(ORB_ID(sensor_combined), sensor_sub_fd, &raw);
-				printf("%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\n",  
+				printf("%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\t%8.4f\n",  
 					(double)raw.accelerometer_m_s2[0],
 					(double)raw.accelerometer_m_s2[1],
 					(double)raw.accelerometer_m_s2[2],
@@ -106,8 +106,7 @@ int px4_simple_app_main(int argc, char *argv[])
 					(double)raw.magnetometer_ga[1],
 					(double)raw.magnetometer_ga[2],
 					(double)raw.baro_pres_mbar,
-					(double)raw.baro_temp_celcius,
-					(double)raw.battery_voltage_v);
+					(double)raw.baro_temp_celcius);
 			}
 		}
 	}

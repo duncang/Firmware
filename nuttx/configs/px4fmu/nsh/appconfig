@@ -74,7 +74,7 @@ CONFIGURED_APPS += systemcmds/delay_test
 
 # Tutorial code from
 # https://pixhawk.ethz.ch/px4/dev/hello_sky
-#CONFIGURED_APPS += px4_simple_app
+CONFIGURED_APPS += px4_simple_app
 
 # Tutorial code from
 # https://pixhawk.ethz.ch/px4/dev/deamon
@@ -131,6 +131,8 @@ CONFIGURED_APPS += drivers/mb12xx
 # Testing stuff
 CONFIGURED_APPS += px4/sensors_bringup
 CONFIGURED_APPS += px4/tests
+
+#CONFIGURED_APPS += examples/adc
 
 ifeq ($(CONFIG_CAN),y)
 #CONFIGURED_APPS += examples/can
