@@ -214,6 +214,7 @@ int can_main(int argc, char *argv[])
     /* Send the TX message */
 
     msgsize = CAN_MSGLEN(msgdlc);
+    message("Sending test message: ID: %4d DLC: %d\n", msgid, msgdlc);
     nbytes = write(fd, &txmsg, msgsize);
     if (nbytes != msgsize)
       {
@@ -231,6 +232,7 @@ int can_main(int argc, char *argv[])
 
 #ifndef CONFIG_EXAMPLES_CAN_WRITEONLY
     msgsize = sizeof(struct can_msg_s);
+    message("Waiting for read...\n");
     nbytes = read(fd, &rxmsg, msgsize);
     if (nbytes < CAN_MSGLEN(0) || nbytes > msgsize)
       {
