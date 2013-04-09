@@ -93,6 +93,9 @@ CONFIGURED_APPS += commander
 CONFIGURED_APPS += sdlog
 CONFIGURED_APPS += sensors
 
+# CANAerospace implementation
+CONFIGURED_APPS += canaero
+
 ifneq ($(CONFIG_APM),y)
 CONFIGURED_APPS += ardrone_interface
 CONFIGURED_APPS += multirotor_att_control
