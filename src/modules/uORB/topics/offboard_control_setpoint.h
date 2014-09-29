@@ -44,18 +44,12 @@
 #include "../uORB.h"
 
 /**
- * @addtogroup topics
- * @{
- */
-
-/**
  * Off-board control inputs.
- * 
+ *
  * Typically sent by a ground control station / joystick or by
  * some off-board controller via C or SIMULINK.
  */
-enum OFFBOARD_CONTROL_MODE
-{
+enum OFFBOARD_CONTROL_MODE {
 	OFFBOARD_CONTROL_MODE_DIRECT = 0,
 	OFFBOARD_CONTROL_MODE_DIRECT_RATES = 1,
 	OFFBOARD_CONTROL_MODE_DIRECT_ATTITUDE = 2,
@@ -66,11 +60,16 @@ enum OFFBOARD_CONTROL_MODE
 	OFFBOARD_CONTROL_MODE_MULTIROTOR_SIMPLE = 7, /**< roll / pitch rotated aligned to the takeoff orientation, throttle stabilized, yaw pos */
 };
 
+/**
+ * @addtogroup topics
+ * @{
+ */
+
 struct offboard_control_setpoint_s {
 	uint64_t timestamp;
 
 	enum OFFBOARD_CONTROL_MODE mode;		 /**< The current control inputs mode */
-	bool armed;	/**< Armed flag set, yes / no */
+
 	float p1;	/**< ailerons roll / roll rate input */
 	float p2;	/**< elevator / pitch / pitch rate */
 	float p3;	/**< rudder / yaw rate / yaw */

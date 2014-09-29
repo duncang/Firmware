@@ -40,46 +40,49 @@
  */
 
 #include "attitude_estimator_ekf_params.h"
+#include <math.h>
 
 /* Extended Kalman Filter covariances */
 
 /* gyro process noise */
-PARAM_DEFINE_FLOAT(EKF_ATT_V2_Q0, 1e-4f);
-PARAM_DEFINE_FLOAT(EKF_ATT_V2_Q1, 0.08f);
-PARAM_DEFINE_FLOAT(EKF_ATT_V2_Q2, 0.009f);
+PARAM_DEFINE_FLOAT(EKF_ATT_V3_Q0, 1e-4f);
+PARAM_DEFINE_FLOAT(EKF_ATT_V3_Q1, 0.08f);
+PARAM_DEFINE_FLOAT(EKF_ATT_V3_Q2, 0.009f);
 /* gyro offsets process noise */
-PARAM_DEFINE_FLOAT(EKF_ATT_V2_Q3, 0.005f);
-PARAM_DEFINE_FLOAT(EKF_ATT_V2_Q4, 0.0f);
+PARAM_DEFINE_FLOAT(EKF_ATT_V3_Q3, 0.005f);
+PARAM_DEFINE_FLOAT(EKF_ATT_V3_Q4, 0.0f);
 
 /* gyro measurement noise */
-PARAM_DEFINE_FLOAT(EKF_ATT_V2_R0, 0.0008f);
-PARAM_DEFINE_FLOAT(EKF_ATT_V2_R1, 0.8f);
-PARAM_DEFINE_FLOAT(EKF_ATT_V2_R2, 1.0f);
-/* accelerometer measurement noise */
-PARAM_DEFINE_FLOAT(EKF_ATT_V2_R3, 0.0f);
+PARAM_DEFINE_FLOAT(EKF_ATT_V4_R0, 0.0008f);
+/* accel measurement noise */
+PARAM_DEFINE_FLOAT(EKF_ATT_V4_R1, 10000.0f);
+/* mag measurement noise */
+PARAM_DEFINE_FLOAT(EKF_ATT_V4_R2, 100.0f);
+/* offset estimation - UNUSED */
+PARAM_DEFINE_FLOAT(EKF_ATT_V4_R3, 0.0f);
 
-/* offsets in roll, pitch and yaw of sensor plane and body */
-PARAM_DEFINE_FLOAT(ATT_ROLL_OFFS, 0.0f);
-PARAM_DEFINE_FLOAT(ATT_PITCH_OFFS, 0.0f);
-PARAM_DEFINE_FLOAT(ATT_YAW_OFFS, 0.0f);
+/* magnetic declination, in degrees */
+PARAM_DEFINE_FLOAT(ATT_MAG_DECL, 0.0f);
+
+PARAM_DEFINE_INT32(ATT_ACC_COMP, 2);
 
 int parameters_init(struct attitude_estimator_ekf_param_handles *h)
 {
 	/* PID parameters */
-	h->q0 	=	param_find("EKF_ATT_V2_Q0");
-	h->q1 	=	param_find("EKF_ATT_V2_Q1");
-	h->q2 	=	param_find("EKF_ATT_V2_Q2");
-	h->q3 	=	param_find("EKF_ATT_V2_Q3");
-	h->q4 	=	param_find("EKF_ATT_V2_Q4");
+	h->q0 	=	param_find("EKF_ATT_V3_Q0");
+	h->q1 	=	param_find("EKF_ATT_V3_Q1");
+	h->q2 	=	param_find("EKF_ATT_V3_Q2");
+	h->q3 	=	param_find("EKF_ATT_V3_Q3");
+	h->q4 	=	param_find("EKF_ATT_V3_Q4");
 
-	h->r0 	=	param_find("EKF_ATT_V2_R0");
-	h->r1 	=	param_find("EKF_ATT_V2_R1");
-	h->r2 	=	param_find("EKF_ATT_V2_R2");
-	h->r3 	=	param_find("EKF_ATT_V2_R3");
+	h->r0 	=	param_find("EKF_ATT_V4_R0");
+	h->r1 	=	param_find("EKF_ATT_V4_R1");
+	h->r2 	=	param_find("EKF_ATT_V4_R2");
+	h->r3 	=	param_find("EKF_ATT_V4_R3");
 
-	h->roll_off  =	param_find("ATT_ROLL_OFFS");
-	h->pitch_off =	param_find("ATT_PITCH_OFFS");
-	h->yaw_off   =	param_find("ATT_YAW_OFFS");
+	h->mag_decl   =	param_find("ATT_MAG_DECL");
+
+	h->acc_comp   =	param_find("ATT_ACC_COMP");
 
 	return OK;
 }
@@ -97,9 +100,10 @@ int parameters_update(const struct attitude_estimator_ekf_param_handles *h, stru
 	param_get(h->r2, &(p->r[2]));
 	param_get(h->r3, &(p->r[3]));
 
-	param_get(h->roll_off, &(p->roll_off));
-	param_get(h->pitch_off, &(p->pitch_off));
-	param_get(h->yaw_off, &(p->yaw_off));
+	param_get(h->mag_decl, &(p->mag_decl));
+	p->mag_decl *= M_PI_F / 180.0f;
+
+	param_get(h->acc_comp, &(p->acc_comp));
 
 	return OK;
 }

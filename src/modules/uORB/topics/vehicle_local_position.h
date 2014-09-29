@@ -1,7 +1,6 @@
 /****************************************************************************
  *
  *   Copyright (C) 2012 PX4 Development Team. All rights reserved.
- *   Author: @author Lorenz Meier <lm@inf.ethz.ch>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,6 +34,9 @@
 /**
  * @file vehicle_local_position.h
  * Definition of the local fused NED position uORB topic.
+ *
+ * @author Lorenz Meier <lm@inf.ethz.ch>
+ * @author Anton Babushkin <anton.babushkin@me.com>
  */
 
 #ifndef TOPIC_VEHICLE_LOCAL_POSITION_H_
@@ -52,29 +54,37 @@
 /**
  * Fused local position in NED.
  */
-struct vehicle_local_position_s
-{
-	uint64_t timestamp;			/**< time of this estimate, in microseconds since system start */
-	bool valid;				/**< true if position satisfies validity criteria of estimator */
-
-	float x;				/**< X positin in meters in NED earth-fixed frame */
-	float y;				/**< X positin in meters in NED earth-fixed frame */
-	float z;				/**< Z positin in meters in NED earth-fixed frame (negative altitude) */
-	float absolute_alt;			/**< Altitude as defined by pressure / GPS, 			LOGME */
-	float vx; 				/**< Ground X Speed (Latitude), m/s in NED				LOGME */
-	float vy;				/**< Ground Y Speed (Longitude), m/s in NED				LOGME */
-	float vz;				/**< Ground Z Speed (Altitude), m/s	in NED				LOGME */
-	float hdg; 				/**< Compass heading in radians -PI..+PI.					  */
-
-	// TODO Add covariances here
-
+struct vehicle_local_position_s {
+	uint64_t timestamp;		/**< Time of this estimate, in microseconds since system start */
+	bool xy_valid;			/**< true if x and y are valid */
+	bool z_valid;			/**< true if z is valid */
+	bool v_xy_valid;		/**< true if vy and vy are valid */
+	bool v_z_valid;			/**< true if vz is valid */
+	/* Position in local NED frame */
+	float x;				/**< X position in meters in NED earth-fixed frame */
+	float y;				/**< X position in meters in NED earth-fixed frame */
+	float z;				/**< Z position in meters in NED earth-fixed frame (negative altitude) */
+	/* Velocity in NED frame */
+	float vx; 				/**< Ground X Speed (Latitude), m/s in NED */
+	float vy;				/**< Ground Y Speed (Longitude), m/s in NED */
+	float vz;				/**< Ground Z Speed (Altitude), m/s	in NED */
+	/* Heading */
+	float yaw;
 	/* Reference position in GPS / WGS84 frame */
-	uint64_t home_timestamp;/**< Time when home position was set						  */
-	int32_t home_lat;		/**< Latitude in 1E7 degrees							LOGME */
-	int32_t home_lon;		/**< Longitude in 1E7 degrees							LOGME */
-	float home_alt;			/**< Altitude in meters									LOGME */
-	float home_hdg; 		/**< Compass heading in radians -PI..+PI.					  */
-
+	bool xy_global;			/**< true if position (x, y) is valid and has valid global reference (ref_lat, ref_lon) */
+	bool z_global;			/**< true if z is valid and has valid global reference (ref_alt) */
+	uint64_t ref_timestamp;	/**< Time when reference position was set */
+	double ref_lat;		/**< Reference point latitude in degrees */
+	double ref_lon;		/**< Reference point longitude in degrees */
+	float ref_alt;			/**< Reference altitude AMSL in meters, MUST be set to current (not at reference point!) ground level */
+	bool landed;			/**< true if vehicle is landed */
+	/* Distance to surface */
+	float dist_bottom;		/**< Distance to bottom surface (ground) */
+	float dist_bottom_rate;		/**< Distance to bottom surface (ground) change rate */
+	uint64_t surface_bottom_timestamp;		/**< Time when new bottom surface found */
+	bool dist_bottom_valid;	/**< true if distance to bottom surface is valid */
+	float eph;
+	float epv;
 };
 
 /**

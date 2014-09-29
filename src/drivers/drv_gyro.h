@@ -32,7 +32,9 @@
  ****************************************************************************/
 
 /**
- * @file Gyroscope driver interface.
+ * @file drv_gyro.h
+ *
+ * Gyroscope driver interface.
  */
 
 #ifndef _DRV_GYRO_H
@@ -52,6 +54,7 @@
  */
 struct gyro_report {
 	uint64_t timestamp;
+	uint64_t error_count;
 	float x;		/**< angular velocity in the NED X board axis in rad/s */
 	float y;		/**< angular velocity in the NED Y board axis in rad/s */
 	float z;		/**< angular velocity in the NED Z board axis in rad/s */
@@ -78,7 +81,9 @@ struct gyro_scale {
 /*
  * ObjDev tag for raw gyro data.
  */
-ORB_DECLARE(sensor_gyro);
+ORB_DECLARE(sensor_gyro0);
+ORB_DECLARE(sensor_gyro1);
+ORB_DECLARE(sensor_gyro2);
 
 /*
  * ioctl() definitions

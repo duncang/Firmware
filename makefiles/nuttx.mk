@@ -64,15 +64,20 @@ LDSCRIPT		+= $(NUTTX_EXPORT_DIR)build/ld.script
 # Add directories from the NuttX export to the relevant search paths
 #
 INCLUDE_DIRS		+= $(NUTTX_EXPORT_DIR)include \
+			   $(NUTTX_EXPORT_DIR)include/cxx \
 			   $(NUTTX_EXPORT_DIR)arch/chip \
 			   $(NUTTX_EXPORT_DIR)arch/common
 
 LIB_DIRS		+= $(NUTTX_EXPORT_DIR)libs
 LIBS			+= -lapps -lnuttx
-LINK_DEPS		+= $(NUTTX_EXPORT_DIR)libs/libapps.a \
+NUTTX_LIBS		 = $(NUTTX_EXPORT_DIR)libs/libapps.a \
 			   $(NUTTX_EXPORT_DIR)libs/libnuttx.a
+LINK_DEPS		+= $(NUTTX_LIBS)
 
 $(NUTTX_CONFIG_HEADER):	$(NUTTX_ARCHIVE)
 	@$(ECHO) %% Unpacking $(NUTTX_ARCHIVE)
 	$(Q) $(UNZIP_CMD) -q -o -d $(WORK_DIR) $(NUTTX_ARCHIVE)
 	$(Q) $(TOUCH) $@
+
+ $(LDSCRIPT): $(NUTTX_CONFIG_HEADER)
+ $(NUTTX_LIBS): $(NUTTX_CONFIG_HEADER)

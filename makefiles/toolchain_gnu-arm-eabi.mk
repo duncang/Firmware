@@ -1,5 +1,5 @@
 #
-#   Copyright (C) 2012 PX4 Development Team. All rights reserved.
+#   Copyright (C) 2012-2014 PX4 Development Team. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -48,9 +48,19 @@ NM			 = $(CROSSDEV)nm
 OBJCOPY			 = $(CROSSDEV)objcopy
 OBJDUMP			 = $(CROSSDEV)objdump
 
+# Check if the right version of the toolchain is available
+#
+CROSSDEV_VER_SUPPORTED	 = 4.7
+CROSSDEV_VER_FOUND	 = $(shell $(CC) -dumpversion)
+
+ifeq (,$(findstring $(CROSSDEV_VER_SUPPORTED),$(CROSSDEV_VER_FOUND)))
+$(error Unsupported version of $(CC), found: $(CROSSDEV_VER_FOUND) instead of $(CROSSDEV_VER_SUPPORTED).x)
+endif
+
+
 # XXX this is pulled pretty directly from the fmu Make.defs - needs cleanup
 
-MAXOPTIMIZATION		 = -O3
+MAXOPTIMIZATION		 ?= -O3
 
 # Base CPU flags for each of the supported architectures.
 #
@@ -70,12 +80,27 @@ ARCHCPUFLAGS_CORTEXM3	 = -mcpu=cortex-m3 \
 			   -march=armv7-m \
 			   -mfloat-abi=soft
 
+ARCHINSTRUMENTATIONDEFINES_CORTEXM4F = -finstrument-functions \
+			   -ffixed-r10
+
+ARCHINSTRUMENTATIONDEFINES_CORTEXM4 = -finstrument-functions \
+			   -ffixed-r10
+
+ARCHINSTRUMENTATIONDEFINES_CORTEXM3 =
+
 # Pick the right set of flags for the architecture.
 #
 ARCHCPUFLAGS		 = $(ARCHCPUFLAGS_$(CONFIG_ARCH))
 ifeq ($(ARCHCPUFLAGS),)
 $(error Must set CONFIG_ARCH to one of CORTEXM4F, CORTEXM4 or CORTEXM3)
 endif
+
+# Set the board flags
+#
+ifeq ($(CONFIG_BOARD),)
+$(error Board config does not define CONFIG_BOARD)
+endif
+ARCHDEFINES		+= -DCONFIG_ARCH_BOARD_$(CONFIG_BOARD)
 
 # optimisation flags
 #
@@ -91,12 +116,12 @@ ARCHOPTIMIZATION	 = $(MAXOPTIMIZATION) \
 
 # enable precise stack overflow tracking
 # note - requires corresponding support in NuttX
-INSTRUMENTATIONDEFINES	 = -finstrument-functions \
-			   -ffixed-r10
+INSTRUMENTATIONDEFINES	 = $(ARCHINSTRUMENTATIONDEFINES_$(CONFIG_ARCH))
+
 # Language-specific flags
 #
 ARCHCFLAGS		 = -std=gnu99
-ARCHCXXFLAGS		 = -fno-exceptions -fno-rtti -std=gnu++0x
+ARCHCXXFLAGS		 = -fno-exceptions -fno-rtti -std=gnu++0x -fno-threadsafe-statics
 
 # Generic warnings
 #
@@ -110,7 +135,15 @@ ARCHWARNINGS		 = -Wall \
 			   -Wlogical-op \
 			   -Wmissing-declarations \
 			   -Wpacked \
-			   -Wno-unused-parameter
+			   -Wno-unused-parameter \
+			   -Werror=format-security \
+			   -Werror=array-bounds \
+			   -Wfatal-errors \
+			   -Wformat=1 \
+			   -Werror=unused-but-set-variable \
+			   -Werror=unused-variable \
+			   -Werror=double-promotion \
+			   -Werror=reorder
 #   -Wcast-qual  - generates spurious noreturn attribute warnings, try again later
 #   -Wconversion - would be nice, but too many "risky-but-safe" conversions in the code
 #   -Wcast-align - would help catch bad casts in some cases, but generates too many false positives
@@ -123,12 +156,12 @@ ARCHCWARNINGS		 = $(ARCHWARNINGS) \
 			   -Wold-style-declaration \
 			   -Wmissing-parameter-type \
 			   -Wmissing-prototypes \
-			   -Wnested-externs \
-			   -Wunsuffixed-float-constants
+			   -Wnested-externs
 
 # C++-specific warnings
 #
-ARCHWARNINGSXX		 = $(ARCHWARNINGS)
+ARCHWARNINGSXX		 = $(ARCHWARNINGS) \
+			   -Wno-missing-field-initializers
 
 # pull in *just* libm from the toolchain ... this is grody
 LIBM			:= $(shell $(CC) $(ARCHCPUFLAGS) -print-file-name=libm.a)
@@ -219,7 +252,7 @@ endef
 define PRELINK
 	@$(ECHO) "PRELINK: $1"
 	@$(MKDIR) -p $(dir $1)
-	$(Q) $(LD) -Ur -o $1 $2 && $(OBJCOPY) --localize-hidden $1
+	$(Q) $(LD) -Ur -Map $1.map -o $1 $2 && $(OBJCOPY) --localize-hidden $1
 endef
 
 # Update the archive $1 with the files in $2
@@ -235,7 +268,7 @@ endef
 define LINK
 	@$(ECHO) "LINK:    $1"
 	@$(MKDIR) -p $(dir $1)
-	$(Q) $(LD) $(LDFLAGS) -o $1 --start-group $2 $(LIBS) $(EXTRA_LIBS) $(LIBGCC) --end-group
+	$(Q) $(LD) $(LDFLAGS) -Map $1.map -o $1 --start-group $2 $(LIBS) $(EXTRA_LIBS) $(LIBGCC) --end-group
 endef
 
 # Convert $1 from a linked object to a raw binary in $2
@@ -246,7 +279,7 @@ define SYM_TO_BIN
 	$(Q) $(OBJCOPY) -O binary $1 $2
 endef
 
-# Take the raw binary $1 and make it into an object file $2. 
+# Take the raw binary $1 and make it into an object file $2.
 # The symbol $3 points to the beginning of the file, and $3_len
 # gives its length.
 #
@@ -280,6 +313,7 @@ define BIN_TO_OBJ
 	$(Q) $(OBJCOPY) $2 \
 		--redefine-sym $(call BIN_SYM_PREFIX,$1)_start=$3 \
 		--redefine-sym $(call BIN_SYM_PREFIX,$1)_size=$3_len \
-		--strip-symbol $(call BIN_SYM_PREFIX,$1)_end
+		--strip-symbol $(call BIN_SYM_PREFIX,$1)_end \
+		--rename-section .data=.rodata
 	$(Q) $(REMOVE) $2.c $2.c.o
 endef

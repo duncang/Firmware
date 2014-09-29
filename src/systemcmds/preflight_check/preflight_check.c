@@ -41,10 +41,13 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <math.h>
 
 #include <systemlib/err.h>
+#include <systemlib/param/param.h>
 
 #include <drivers/drv_led.h>
 #include <drivers/drv_hrt.h>
@@ -55,6 +58,7 @@
 #include <drivers/drv_baro.h>
 
 #include <mavlink/mavlink_log.h>
+#include <systemlib/rc_check.h>
 
 __EXPORT int preflight_check_main(int argc, char *argv[]);
 static int led_toggle(int leds, int led);
@@ -84,9 +88,7 @@ int preflight_check_main(int argc, char *argv[])
 	/* give the system some time to sample the sensors in the background */
 	usleep(150000);
 
-
 	/* ---- MAG ---- */
-	close(fd);
 	fd = open(MAG_DEVICE_PATH, 0);
 	if (fd < 0) {
 		warn("failed to open magnetometer - start with 'hmc5883 start' or 'lsm303d start'");
@@ -98,7 +100,7 @@ int preflight_check_main(int argc, char *argv[])
 	
 	if (ret != OK) {
 		warnx("magnetometer calibration missing or bad - calibrate magnetometer first");
-		mavlink_log_critical(mavlink_fd, "SENSOR FAIL: MAG CALIBRATION");
+		mavlink_log_critical(mavlink_fd, "SENSOR FAIL: MAG CHECK/CAL");
 		system_ok = false;
 		goto system_eval;
 	}
@@ -106,12 +108,35 @@ int preflight_check_main(int argc, char *argv[])
 	/* ---- ACCEL ---- */
 
 	close(fd);
-	fd = open(ACCEL_DEVICE_PATH, 0);
+	fd = open(ACCEL_DEVICE_PATH, O_RDONLY);
 	ret = ioctl(fd, ACCELIOCSELFTEST, 0);
 	
 	if (ret != OK) {
 		warnx("accel self test failed");
-		mavlink_log_critical(mavlink_fd, "SENSOR FAIL: ACCEL CHECK");
+		mavlink_log_critical(mavlink_fd, "SENSOR FAIL: ACCEL CHECK/CAL");
+		system_ok = false;
+		goto system_eval;
+	}
+
+	/* check measurement result range */
+	struct accel_report acc;
+	ret = read(fd, &acc, sizeof(acc));
+
+	if (ret == sizeof(acc)) {
+		/* evaluate values */
+		if (sqrtf(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z) > 30.0f /* m/s^2 */) {
+			warnx("accel with spurious values");
+			mavlink_log_critical(mavlink_fd, "SENSOR FAIL: |ACCEL| > 30 m/s^2");
+			/* this is frickin' fatal */
+			fail_on_error = true;
+			system_ok = false;
+			goto system_eval;
+		}
+	} else {
+		warnx("accel read failed");
+		mavlink_log_critical(mavlink_fd, "SENSOR FAIL: ACCEL READ");
+		/* this is frickin' fatal */
+		fail_on_error = true;
 		system_ok = false;
 		goto system_eval;
 	}
@@ -124,7 +149,7 @@ int preflight_check_main(int argc, char *argv[])
 	
 	if (ret != OK) {
 		warnx("gyro self test failed");
-		mavlink_log_critical(mavlink_fd, "SENSOR FAIL: GYRO CHECK");
+		mavlink_log_critical(mavlink_fd, "SENSOR FAIL: GYRO CHECK/CAL");
 		system_ok = false;
 		goto system_eval;
 	}
@@ -133,6 +158,19 @@ int preflight_check_main(int argc, char *argv[])
 
 	close(fd);
 	fd = open(BARO_DEVICE_PATH, 0);
+	close(fd);
+
+	/* ---- RC CALIBRATION ---- */
+
+	bool rc_ok = (OK == rc_calibration_check(mavlink_fd));
+
+	/* warn */
+	if (!rc_ok)
+		warnx("rc calibration test failed");
+
+	/* require RC ok to keep system_ok */
+	system_ok &= rc_ok;
+
 
 		
 
@@ -144,8 +182,16 @@ system_eval:
 	} else {
 		fflush(stdout);
 
-		int buzzer = open("/dev/tone_alarm", O_WRONLY);
+		warnx("PREFLIGHT CHECK ERROR! TRIGGERING ALARM");
+		fflush(stderr);
+
+		int buzzer = open(TONEALARM_DEVICE_PATH, O_WRONLY);
 		int leds = open(LED_DEVICE_PATH, 0);
+
+		if (leds < 0) {
+			close(buzzer);
+			errx(1, "failed to open leds, aborting");
+		}
 
 		/* flip blue led into alternating amber */
 		led_off(leds, LED_BLUE);
@@ -153,25 +199,26 @@ system_eval:
 		led_toggle(leds, LED_BLUE);
 
 		/* display and sound error */
-		for (int i = 0; i < 150; i++)
+		for (int i = 0; i < 14; i++)
 		{
 			led_toggle(leds, LED_BLUE);
 			led_toggle(leds, LED_AMBER);
 
 			if (i % 10 == 0) {
-				ioctl(buzzer, TONE_SET_ALARM, 4);
+				ioctl(buzzer, TONE_SET_ALARM, TONE_NOTIFY_NEUTRAL_TUNE);
 			} else if (i % 5 == 0) {
-				ioctl(buzzer, TONE_SET_ALARM, 2);
+				ioctl(buzzer, TONE_SET_ALARM, TONE_ERROR_TUNE);
 			}
 			usleep(100000);
 		}
 
 		/* stop alarm */
-		ioctl(buzzer, TONE_SET_ALARM, 0);
+		ioctl(buzzer, TONE_SET_ALARM, TONE_STOP_TUNE);
 
-		/* switch on leds */
+		/* switch off leds */
 		led_on(leds, LED_BLUE);
 		led_on(leds, LED_AMBER);
+		close(leds);
 
 		if (fail_on_error) {
 			/* exit with error message */

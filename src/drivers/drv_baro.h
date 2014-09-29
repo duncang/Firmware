@@ -32,7 +32,9 @@
  ****************************************************************************/
 
 /**
- * @file Barometric pressure sensor driver interface.
+ * @file drv_baro.h
+ *
+ * Barometric pressure sensor driver interface.
  */
 
 #ifndef _DRV_BARO_H
@@ -55,12 +57,14 @@ struct baro_report {
 	float altitude;
 	float temperature;
 	uint64_t timestamp;
+	uint64_t error_count;
 };
 
 /*
  * ObjDev tag for raw barometer data.
  */
-ORB_DECLARE(sensor_baro);
+ORB_DECLARE(sensor_baro0);
+ORB_DECLARE(sensor_baro1);
 
 /*
  * ioctl() definitions

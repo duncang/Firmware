@@ -110,8 +110,10 @@ ifneq ($(words $(PX4_BASE)),1)
 $(error Cannot build when the PX4_BASE path contains one or more space characters.)
 endif
 
+$(info %  GIT_DESC            = $(GIT_DESC))
+
 #
-# Set a default target so that included makefiles or errors here don't 
+# Set a default target so that included makefiles or errors here don't
 # cause confusion.
 #
 # XXX We could do something cute here with $(DEFAULT_GOAL) if it's not one
@@ -153,6 +155,7 @@ ifeq ($(BOARD_FILE),)
 $(error Config $(CONFIG) references board $(BOARD), but no board definition file found)
 endif
 export BOARD
+export BOARD_FILE
 include $(BOARD_FILE)
 $(info %  BOARD               = $(BOARD))
 
@@ -174,23 +177,28 @@ GLOBAL_DEPS		+= $(MAKEFILE_LIST)
 #
 # Extra things we should clean
 #
-EXTRA_CLEANS		 = 
+EXTRA_CLEANS		 =
+
+
+#
+# Extra defines for compilation
+#
+export EXTRADEFINES := -DGIT_VERSION=$(GIT_DESC)
+
+#
+# Append the per-board driver directory to the header search path.
+#
+INCLUDE_DIRS		+= $(PX4_MODULE_SRC)drivers/boards/$(BOARD)
+
+################################################################################
+# NuttX libraries and paths
+################################################################################
+
+include $(PX4_MK_DIR)/nuttx.mk
 
 ################################################################################
 # Modules
 ################################################################################
-
-#
-# We don't actually know what a module is called; all we have is a path fragment
-# that we can search for, and where we expect to find a module.mk file.
-#
-# As such, we replicate the successfully-found path inside WORK_DIR for the
-# module's build products in order to keep modules separated from each other.
-#
-# XXX If this becomes unwieldy or breaks for other reasons, we will need to 
-#     move to allocating directory names and keeping tabs on makefiles via
-#     the directory name. That will involve arithmetic (it'd probably be time
-#     for GMSL).
 
 # where to look for modules
 MODULE_SEARCH_DIRS	+= $(WORK_DIR) $(MODULE_SRC) $(PX4_MODULE_SRC)
@@ -249,10 +257,64 @@ $(MODULE_CLEANS):
 	clean
 
 ################################################################################
-# NuttX libraries and paths
+# Libraries
 ################################################################################
 
-include $(PX4_MK_DIR)/nuttx.mk
+# where to look for libraries
+LIBRARY_SEARCH_DIRS	+= $(WORK_DIR) $(MODULE_SRC) $(PX4_MODULE_SRC)
+
+# sort and unique the library list
+LIBRARIES		:= $(sort $(LIBRARIES))
+
+# locate the first instance of a library by full path or by looking on the
+# library search path
+define LIBRARY_SEARCH
+	$(firstword $(abspath $(wildcard $(1)/library.mk)) \
+		$(abspath $(foreach search_dir,$(LIBRARY_SEARCH_DIRS),$(wildcard $(search_dir)/$(1)/library.mk))) \
+		MISSING_$1)
+endef
+
+# make a list of library makefiles and check that we found them all
+LIBRARY_MKFILES		:= $(foreach library,$(LIBRARIES),$(call LIBRARY_SEARCH,$(library)))
+MISSING_LIBRARIES	:= $(subst MISSING_,,$(filter MISSING_%,$(LIBRARY_MKFILES)))
+ifneq ($(MISSING_LIBRARIES),)
+$(error Can't find library(s): $(MISSING_LIBRARIES))
+endif
+
+# Make a list of the archive files we expect to build from libraries
+# Note that this path will typically contain a double-slash at the WORK_DIR boundary; this must be
+# preserved as it is used below to get the absolute path for the library.mk file correct.
+#
+LIBRARY_LIBS		:= $(foreach path,$(dir $(LIBRARY_MKFILES)),$(WORK_DIR)$(path)library.a)
+
+# rules to build module objects
+.PHONY: $(LIBRARY_LIBS)
+$(LIBRARY_LIBS):	relpath = $(patsubst $(WORK_DIR)%,%,$@)
+$(LIBRARY_LIBS):	mkfile = $(patsubst %library.a,%library.mk,$(relpath))
+$(LIBRARY_LIBS):	workdir = $(@D)
+$(LIBRARY_LIBS):	$(GLOBAL_DEPS) $(NUTTX_CONFIG_HEADER)
+	$(Q) $(MKDIR) -p $(workdir)
+	$(Q) $(MAKE) -r -f $(PX4_MK_DIR)library.mk \
+		-C $(workdir) \
+		LIBRARY_WORK_DIR=$(workdir) \
+		LIBRARY_LIB=$@ \
+		LIBRARY_MK=$(mkfile) \
+		LIBRARY_NAME=$(lastword $(subst /, ,$(workdir))) \
+		library
+
+# make a list of phony clean targets for modules
+LIBRARY_CLEANS		:= $(foreach path,$(dir $(LIBRARY_MKFILES)),$(WORK_DIR)$(path)/clean)
+
+# rules to clean modules
+.PHONY: $(LIBRARY_CLEANS)
+$(LIBRARY_CLEANS):	relpath = $(patsubst $(WORK_DIR)%,%,$@)
+$(LIBRARY_CLEANS):	mkfile = $(patsubst %clean,%library.mk,$(relpath))
+$(LIBRARY_CLEANS):
+	@$(ECHO) %% cleaning using $(mkfile)
+	$(Q) $(MAKE) -r -f $(PX4_MK_DIR)library.mk \
+	LIBRARY_WORK_DIR=$(dir $@) \
+	LIBRARY_MK=$(mkfile) \
+	clean
 
 ################################################################################
 # ROMFS generation
@@ -268,7 +330,7 @@ endif
 # a root from several templates. That would be a nice feature.
 #
 
-# Add dependencies on anything in the ROMFS root
+# Add dependencies on anything in the ROMFS root directory
 ROMFS_FILES		+= $(wildcard \
 			     $(ROMFS_ROOT)/* \
 			     $(ROMFS_ROOT)/*/* \
@@ -280,20 +342,42 @@ ifeq ($(ROMFS_FILES),)
 $(error ROMFS_ROOT $(ROMFS_ROOT) specifies a directory containing no files)
 endif
 ROMFS_DEPS		+= $(ROMFS_FILES)
+
+# Extra files that may be copied into the ROMFS /extras directory
+# ROMFS_EXTRA_FILES are required, ROMFS_OPTIONAL_FILES are optional
+ROMFS_EXTRA_FILES	+= $(wildcard $(ROMFS_OPTIONAL_FILES))
+ROMFS_DEPS		+= $(ROMFS_EXTRA_FILES)
+
 ROMFS_IMG		 = romfs.img
+ROMFS_SCRATCH		 = romfs_scratch
 ROMFS_CSRC		 = $(ROMFS_IMG:.img=.c)
 ROMFS_OBJ		 = $(ROMFS_CSRC:.c=.o)
 LIBS			+= $(ROMFS_OBJ)
 LINK_DEPS		+= $(ROMFS_OBJ)
+
+# Remove all comments from startup and mixer files
+ROMFS_PRUNER	 = $(PX4_BASE)/Tools/px_romfs_pruner.py
 
 # Turn the ROMFS image into an object file
 $(ROMFS_OBJ): $(ROMFS_IMG) $(GLOBAL_DEPS)
 	$(call BIN_TO_OBJ,$<,$@,romfs_img)
 
 # Generate the ROMFS image from the root
-$(ROMFS_IMG): $(ROMFS_DEPS) $(GLOBAL_DEPS)
+$(ROMFS_IMG): $(ROMFS_SCRATCH) $(ROMFS_DEPS) $(GLOBAL_DEPS)
 	@$(ECHO) "ROMFS:   $@"
-	$(Q) $(GENROMFS) -f $@ -d $(ROMFS_ROOT) -V "NSHInitVol"
+	$(Q) $(GENROMFS) -f $@ -d $(ROMFS_SCRATCH) -V "NSHInitVol"
+
+# Construct the ROMFS scratch root from the canonical root
+$(ROMFS_SCRATCH): $(ROMFS_DEPS) $(GLOBAL_DEPS)
+	$(Q) $(MKDIR) -p $(ROMFS_SCRATCH)
+	$(Q) $(COPYDIR) $(ROMFS_ROOT)/* $(ROMFS_SCRATCH)
+# delete all files in ROMFS_SCRATCH which start with a . or end with a ~
+	$(Q) $(RM) $(ROMFS_SCRATCH)/*/.[!.]* $(ROMFS_SCRATCH)/*/*~
+ifneq ($(ROMFS_EXTRA_FILES),)
+	$(Q) $(MKDIR) -p $(ROMFS_SCRATCH)/extras
+	$(Q) $(COPY) $(ROMFS_EXTRA_FILES) $(ROMFS_SCRATCH)/extras
+endif
+	$(Q) $(PYTHON) -u $(ROMFS_PRUNER) --folder $(ROMFS_SCRATCH)
 
 EXTRA_CLEANS		+= $(ROMGS_OBJ) $(ROMFS_IMG)
 
@@ -337,7 +421,7 @@ define BUILTIN_DEF
 endef
 
 # Don't generate until modules have updated their command files
-$(BUILTIN_CSRC):	$(GLOBAL_DEPS) $(MODULE_OBJS) $(BUILTIN_COMMAND_FILES)
+$(BUILTIN_CSRC):	$(GLOBAL_DEPS) $(MODULE_OBJS) $(MODULE_MKFILES) $(BUILTIN_COMMAND_FILES)
 	@$(ECHO) "CMDS:    $@"
 	$(Q) $(ECHO) '/* builtin command list - automatically generated, do not edit */' > $@
 	$(Q) $(ECHO) '#include <nuttx/config.h>' >> $@
@@ -420,8 +504,8 @@ $(PRODUCT_BUNDLE):	$(PRODUCT_BIN)
 $(PRODUCT_BIN):		$(PRODUCT_ELF)
 	$(call SYM_TO_BIN,$<,$@)
 
-$(PRODUCT_ELF):		$(OBJS) $(MODULE_OBJS) $(GLOBAL_DEPS) $(LINK_DEPS) $(MODULE_MKFILES)
-	$(call LINK,$@,$(OBJS) $(MODULE_OBJS))
+$(PRODUCT_ELF):		$(OBJS) $(MODULE_OBJS) $(LIBRARY_LIBS) $(GLOBAL_DEPS) $(LINK_DEPS) $(MODULE_MKFILES)
+	$(call LINK,$@,$(OBJS) $(MODULE_OBJS) $(LIBRARY_LIBS))
 
 #
 # Utility rules

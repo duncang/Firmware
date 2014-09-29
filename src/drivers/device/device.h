@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (C) 2012 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2012-2014 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -69,13 +69,92 @@ class __EXPORT Device
 {
 public:
 	/**
+	 * Destructor.
+	 *
+	 * Public so that anonymous devices can be destroyed.
+	 */
+	virtual ~Device();
+
+	/**
 	 * Interrupt handler.
 	 */
 	virtual void	interrupt(void *ctx);	/**< interrupt handler */
 
+	/*
+	 * Direct access methods.
+	 */
+
+	/**
+	 * Initialise the driver and make it ready for use.
+	 *
+	 * @return	OK if the driver initialized OK, negative errno otherwise;
+	 */
+	virtual int	init();
+
+	/**
+	 * Read directly from the device.
+	 *
+	 * The actual size of each unit quantity is device-specific.
+	 *
+	 * @param offset	The device address at which to start reading
+	 * @param data		The buffer into which the read values should be placed.
+	 * @param count		The number of items to read.
+	 * @return		The number of items read on success, negative errno otherwise.
+	 */
+	virtual int	read(unsigned address, void *data, unsigned count);
+
+	/**
+	 * Write directly to the device.
+	 *
+	 * The actual size of each unit quantity is device-specific.
+	 *
+	 * @param address	The device address at which to start writing.
+	 * @param data		The buffer from which values should be read.
+	 * @param count		The number of items to write.
+	 * @return		The number of items written on success, negative errno otherwise.
+	 */	 
+	virtual int	write(unsigned address, void *data, unsigned count);
+
+	/**
+	 * Perform a device-specific operation.
+	 *
+	 * @param operation	The operation to perform.
+	 * @param arg		An argument to the operation.
+	 * @return		Negative errno on error, OK or positive value on success.
+	 */
+	virtual int	ioctl(unsigned operation, unsigned &arg);
+
+	/*
+	  device bus types for DEVID
+	 */
+	enum DeviceBusType {
+		DeviceBusType_UNKNOWN = 0,
+		DeviceBusType_I2C     = 1,
+		DeviceBusType_SPI     = 2
+	};
+
+	/*
+	  broken out device elements. The bitfields are used to keep
+	  the overall value small enough to fit in a float accurately,
+	  which makes it possible to transport over the MAVLink
+	  parameter protocol without loss of information.
+	 */
+	struct DeviceStructure {
+		enum DeviceBusType bus_type:3;
+		uint8_t bus:5;     // which instance of the bus type
+		uint8_t address;   // address on the bus (eg. I2C address)
+		uint8_t devtype;   // device class specific device type
+	};
+
+	union DeviceId {
+		struct DeviceStructure devid_s;
+		uint32_t devid;
+	};
+
 protected:
 	const char	*_name;			/**< driver name */
 	bool		_debug_enabled;		/**< if true, debug messages are printed */
+	union DeviceId	_device_id;             /**< device identifier information */
 
 	/**
 	 * Constructor
@@ -85,14 +164,6 @@ protected:
 	 */
 	Device(const char *name,
 	       int irq = 0);
-	~Device();
-
-	/**
-	 * Initialise the driver and make it ready for use.
-	 *
-	 * @return	OK if the driver initialised OK.
-	 */
-	virtual int	init();
 
 	/**
 	 * Enable the device interrupt
@@ -169,6 +240,7 @@ private:
 	 * @param context	Pointer to the interrupted context.
 	 */
 	static void	dev_interrupt(int irq, void *context);
+
 };
 
 /**
@@ -189,7 +261,7 @@ public:
 	/**
 	 * Destructor
 	 */
-	~CDev();
+	virtual ~CDev();
 
 	virtual int	init();
 
@@ -282,6 +354,7 @@ public:
 	 * Test whether the device is currently open.
 	 *
 	 * This can be used to avoid tearing down a device that is still active.
+	 * Note - not virtual, cannot be overridden by a subclass.
 	 *
 	 * @return              True if the device is currently open.
 	 */
@@ -352,6 +425,27 @@ protected:
 	 */
 	virtual int	close_last(struct file *filp);
 
+        /**
+	 * Register a class device name, automatically adding device
+	 * class instance suffix if need be.
+	 *
+	 * @param class_devname   Device class name
+	 * @return class_instamce Class instance created, or -errno on failure
+	 */
+	virtual int register_class_devname(const char *class_devname);
+
+        /**
+	 * Register a class device name, automatically adding device
+	 * class instance suffix if need be.
+	 *
+	 * @param class_devname   Device class name
+	 * @param class_instance  Device class instance from register_class_devname()
+	 * @return		  OK on success, -errno otherwise
+	 */
+	virtual int unregister_class_devname(const char *class_devname, unsigned class_instance);
+
+	bool		_pub_blocked;		/**< true if publishing should be blocked */
+
 private:
 	static const unsigned _max_pollwaiters = 8;
 
@@ -376,6 +470,10 @@ private:
 	 * @return		OK, or -errno on error.
 	 */
 	int		remove_poll_waiter(struct pollfd *fds);
+
+	/* do not allow copying this class */
+	CDev(const CDev&);
+	CDev operator=(const CDev&);
 };
 
 /**
@@ -396,9 +494,9 @@ public:
 	    const char *devname,
 	    uint32_t base,
 	    int irq = 0);
-	~PIO();
+	virtual ~PIO();
 
-	int		init();
+	virtual int	init();
 
 protected:
 
@@ -407,7 +505,7 @@ protected:
 	 *
 	 * @param offset	Register offset in bytes from the base address.
 	 */
-	uint32_t reg(uint32_t offset) {
+	uint32_t	reg(uint32_t offset) {
 		return *(volatile uint32_t *)(_base + offset);
 	}
 
@@ -443,5 +541,12 @@ private:
 };
 
 } // namespace device
+
+// class instance for primary driver of each class
+enum CLASS_DEVICE {
+	CLASS_DEVICE_PRIMARY=0,
+	CLASS_DEVICE_SECONDARY=1,
+	CLASS_DEVICE_TERTIARY=2
+};
 
 #endif /* _DEVICE_DEVICE_H */

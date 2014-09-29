@@ -69,29 +69,28 @@ private:
 		PROTO_REBOOT		= 0x30,
 
 		INFO_BL_REV		= 1,		/**< bootloader protocol revision */
-		BL_REV			= 3,		/**< supported bootloader protocol  */
+		BL_REV			= 4,		/**< supported bootloader protocol  */
 		INFO_BOARD_ID		= 2,		/**< board type */
 		INFO_BOARD_REV		= 3,		/**< board revision */
 		INFO_FLASH_SIZE		= 4,		/**< max firmware size in bytes */
 
-		PROG_MULTI_MAX		= 60,		/**< protocol max is 255, must be multiple of 4 */
-		READ_MULTI_MAX		= 60,		/**< protocol max is 255, something overflows with >= 64 */
+		PROG_MULTI_MAX		= 248,		/**< protocol max is 255, must be multiple of 4 */
 
 	};
 
 	int			_io_fd;
 	int			_fw_fd;
 
-	uint32_t	bl_rev; /**< bootloader revision */
+	uint32_t		bl_rev; /**< bootloader revision */
 
 	void			log(const char *fmt, ...);
 
-	int			recv(uint8_t &c, unsigned timeout);
-	int			recv(uint8_t *p, unsigned count);
+	int			recv_byte_with_timeout(uint8_t *c, unsigned timeout);
+	int			recv_bytes(uint8_t *p, unsigned count);
 	void			drain();
 	int			send(uint8_t c);
 	int			send(uint8_t *p, unsigned count);
-	int			get_sync(unsigned timeout = 1000);
+	int			get_sync(unsigned timeout = 40);
 	int			sync();
 	int			get_info(int param, uint32_t &val);
 	int			erase();

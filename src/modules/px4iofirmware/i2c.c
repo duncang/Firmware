@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (C) 2012 PX4 Development Team. All rights reserved.
+ *   Copyright (C) 2012,2013 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -64,11 +64,15 @@
 #define rCCR		REG(STM32_I2C_CCR_OFFSET)
 #define rTRISE		REG(STM32_I2C_TRISE_OFFSET)
 
+void			i2c_reset(void);
 static int		i2c_interrupt(int irq, void *context);
 static void		i2c_rx_setup(void);
 static void		i2c_tx_setup(void);
 static void		i2c_rx_complete(void);
 static void		i2c_tx_complete(void);
+#ifdef DEBUG
+static void		i2c_dump(void);
+#endif
 
 static DMA_HANDLE	rx_dma;
 static DMA_HANDLE	tx_dma;
@@ -92,7 +96,7 @@ enum {
 } direction;
 
 void
-i2c_init(void)
+interface_init(void)
 {
 	debug("i2c init");
 
@@ -148,12 +152,12 @@ i2c_init(void)
 #endif
 }
 
-
 /*
   reset the I2C bus
   used to recover from lockups
  */
-void i2c_reset(void)
+void
+i2c_reset(void)
 {
 	rCR1 |= I2C_CR1_SWRST;
 	rCR1 = 0;
@@ -330,7 +334,8 @@ i2c_tx_complete(void)
 	i2c_tx_setup();
 }
 
-void
+#ifdef DEBUG
+static void
 i2c_dump(void)
 {
 	debug("CR1   0x%08x  CR2   0x%08x", rCR1,  rCR2);
@@ -338,3 +343,4 @@ i2c_dump(void)
 	debug("CCR   0x%08x  TRISE 0x%08x", rCCR,  rTRISE);
 	debug("SR1   0x%08x  SR2   0x%08x", rSR1,  rSR2);
 }
+#endif

@@ -71,7 +71,7 @@ protected:
 	    enum spi_mode_e mode,
 	    uint32_t frequency,
 	    int irq = 0);
-	~SPI();
+	virtual ~SPI();
 
 	virtual int	init();
 
@@ -101,12 +101,43 @@ protected:
 	 */
 	int		transfer(uint8_t *send, uint8_t *recv, unsigned len);
 
+	/**
+	 * Set the SPI bus frequency
+	 * This is used to change frequency on the fly. Some sensors
+	 * (such as the MPU6000) need a lower frequency for setup
+	 * registers and can handle higher frequency for sensor 
+	 * value registers
+	 *
+	 * @param frequency	Frequency to set (Hz)
+	 */
+        void		set_frequency(uint32_t frequency);
+
+	/**
+	 * Locking modes supported by the driver.
+	 */
+	enum LockMode {
+		LOCK_PREEMPTION,	/**< the default; lock against all forms of preemption. */
+		LOCK_THREADS,		/**< lock only against other threads, using SPI_LOCK */
+		LOCK_NONE		/**< perform no locking, only safe if the bus is entirely private */
+	};
+
+	LockMode	locking_mode;	/**< selected locking mode */
+
 private:
-	int			_bus;
 	enum spi_dev_e		_device;
 	enum spi_mode_e		_mode;
 	uint32_t		_frequency;
 	struct spi_dev_s	*_dev;
+
+	/* this class does not allow copying */
+	SPI(const SPI&);
+	SPI operator=(const SPI&);
+
+protected:
+	int			_bus;
+
+	int	_transfer(uint8_t *send, uint8_t *recv, unsigned len);
+
 };
 
 } // namespace device

@@ -50,12 +50,7 @@
 #include <stdbool.h>
 #include "../uORB.h"
 
-/**
- * @addtogroup topics
- */
-
-enum SUBSYSTEM_TYPE
-{
+enum SUBSYSTEM_TYPE {
 	SUBSYSTEM_TYPE_GYRO = 1,
 	SUBSYSTEM_TYPE_ACC = 2,
 	SUBSYSTEM_TYPE_MAG = 4,
@@ -74,6 +69,10 @@ enum SUBSYSTEM_TYPE
 	SUBSYSTEM_TYPE_MOTORCONTROL = 65536,
 	SUBSYSTEM_TYPE_RANGEFINDER = 131072
 };
+
+/**
+ * @addtogroup topics
+ */
 
 /**
  * State of individual sub systems
