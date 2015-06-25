@@ -38,6 +38,7 @@
  */
 
 #include "blocks.hpp"
+#include <geo/geo.h>
 
 namespace control
 {
@@ -60,16 +61,16 @@ void BlockWaypointGuidance::update(vehicle_global_position_s &pos,
 
 	// heading to waypoint
 	float psiTrack = get_bearing_to_next_waypoint(
-				 (double)pos.lat / (double)1e7d,
-				 (double)pos.lon / (double)1e7d,
+				 (double)pos.lat / (double)1e7,
+				 (double)pos.lon / (double)1e7,
 				 missionCmd.lat,
 				 missionCmd.lon);
 
 	// cross track
 	struct crosstrack_error_s xtrackError;
 	get_distance_to_line(&xtrackError,
-			     (double)pos.lat / (double)1e7d,
-			     (double)pos.lon / (double)1e7d,
+			     (double)pos.lat / (double)1e7,
+			     (double)pos.lon / (double)1e7,
 			     lastMissionCmd.lat,
 			     lastMissionCmd.lon,
 			     missionCmd.lat,
@@ -82,16 +83,16 @@ void BlockWaypointGuidance::update(vehicle_global_position_s &pos,
 BlockUorbEnabledAutopilot::BlockUorbEnabledAutopilot(SuperBlock *parent, const char *name) :
 	SuperBlock(parent, name),
 	// subscriptions
-	_att(&getSubscriptions(), ORB_ID(vehicle_attitude), 20),
-	_attCmd(&getSubscriptions(), ORB_ID(vehicle_attitude_setpoint), 20),
-	_ratesCmd(&getSubscriptions(), ORB_ID(vehicle_rates_setpoint), 20),
-	_pos(&getSubscriptions() , ORB_ID(vehicle_global_position), 20),
-	_missionCmd(&getSubscriptions(), ORB_ID(position_setpoint_triplet), 20),
-	_manual(&getSubscriptions(), ORB_ID(manual_control_setpoint), 20),
-	_status(&getSubscriptions(), ORB_ID(vehicle_status), 20),
-	_param_update(&getSubscriptions(), ORB_ID(parameter_update), 1000), // limit to 1 Hz
+	_att(ORB_ID(vehicle_attitude), 20, &getSubscriptions()),
+	_attCmd(ORB_ID(vehicle_attitude_setpoint), 20, &getSubscriptions()),
+	_ratesCmd(ORB_ID(vehicle_rates_setpoint), 20, &getSubscriptions()),
+	_pos(ORB_ID(vehicle_global_position), 20, &getSubscriptions()),
+	_missionCmd(ORB_ID(position_setpoint_triplet), 20, &getSubscriptions()),
+	_manual(ORB_ID(manual_control_setpoint), 20, &getSubscriptions()),
+	_status(ORB_ID(vehicle_status), 20, &getSubscriptions()),
+	_param_update(ORB_ID(parameter_update), 1000, &getSubscriptions()), // limit to 1 Hz
 	// publications
-	_actuators(&getPublications(), ORB_ID(actuator_controls_0))
+	_actuators(ORB_ID(actuator_controls_0), &getPublications())
 {
 }
 

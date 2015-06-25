@@ -37,6 +37,8 @@
  *
  * @author Julian Oes <julian@oes.ch>
  * @author Thomas Gubler <thomasgubler@gmail.com>
+ * @author Anton Babushkin <anton.babushkin@me.com>
+ * @author Ban Siesta <bansiesta@gmail.com>
  */
 
 #ifndef NAVIGATOR_MISSION_H
@@ -81,6 +83,13 @@ public:
 		MISSION_ALTMODE_FOH = 1
 	};
 
+	enum mission_yaw_mode {
+		MISSION_YAWMODE_NONE = 0,
+		MISSION_YAWMODE_FRONT_TO_WAYPOINT = 1,
+		MISSION_YAWMODE_FRONT_TO_HOME = 2,
+		MISSION_YAWMODE_BACK_TO_HOME = 3
+	};
+
 private:
 	/**
 	 * Update onboard mission topic
@@ -109,6 +118,11 @@ private:
 	void set_mission_items();
 
 	/**
+	 * Updates the heading of the vehicle. Rotary wings only.
+	 */
+	void heading_sp_update();
+
+	/**
 	 * Updates the altitude sp to follow a foh
 	 */
 	void altitude_sp_foh_update();
@@ -117,6 +131,8 @@ private:
 	 * Resets the altitude sp foh logic
 	 */
 	void altitude_sp_foh_reset();
+
+	int get_absolute_altitude_for_item(struct mission_item_s &mission_item);
 
 	/**
 	 * Read current or next mission item from the dataman and watch out for DO_JUMPS
@@ -130,40 +146,38 @@ private:
 	void save_offboard_mission_state();
 
 	/**
-	 * Report that a mission item has been reached
+	 * Inform about a changed mission item after a DO_JUMP
 	 */
-	void report_mission_item_reached();
+	void report_do_jump_mission_changed(int index, int do_jumps_remaining);
 
 	/**
-	 * Rport the current mission item
+	 * Set a mission item as reached
 	 */
-	void report_current_offboard_mission_item();
+	void set_mission_item_reached();
 
 	/**
-	 * Report that the mission is finished if one exists or that none exists
+	 * Set the current offboard mission item
 	 */
-	void report_mission_finished();
+	void set_current_offboard_mission_item();
 
 	/**
-	 * Publish the mission result so commander and mavlink know what is going on
+	 * Set that the mission is finished if one exists or that none exists
 	 */
-	void publish_mission_result();
+	void set_mission_finished();
 
 	control::BlockParamInt _param_onboard_enabled;
 	control::BlockParamFloat _param_takeoff_alt;
 	control::BlockParamFloat _param_dist_1wp;
 	control::BlockParamInt _param_altmode;
+	control::BlockParamInt _param_yawmode;
 
 	struct mission_s _onboard_mission;
 	struct mission_s _offboard_mission;
 
 	int _current_onboard_mission_index;
 	int _current_offboard_mission_index;
-	bool _need_takeoff;
-	bool _takeoff;
-
-	orb_advert_t _mission_result_pub;
-	struct mission_result_s _mission_result;
+	bool _need_takeoff;					/**< if true, then takeoff must be performed before going to the first waypoint (if needed) */
+	bool _takeoff;						/**< takeoff state flag */
 
 	enum {
 		MISSION_TYPE_NONE,
@@ -178,7 +192,8 @@ private:
 
 	float _min_current_sp_distance_xy; /**< minimum distance which was achieved to the current waypoint  */
 	float _mission_item_previous_alt; /**< holds the altitude of the previous mission item,
-					    can be replaced by a full copy of the previous mission item if needed*/
+					    can be replaced by a full copy of the previous mission item if needed */
+	float _on_arrival_yaw; /**< holds the yaw value that should be applied when the current waypoint is reached */
 	float _distance_current_previous; /**< distance from previous to current sp in pos_sp_triplet,
 					    only use if current and previous are valid */
 };

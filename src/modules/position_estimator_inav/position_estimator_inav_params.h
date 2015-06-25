@@ -44,6 +44,7 @@
 struct position_estimator_inav_params {
 	float w_z_baro;
 	float w_z_gps_p;
+	float w_z_gps_v;
 	float w_z_vision_p;
 	float w_z_sonar;
 	float w_xy_gps_p;
@@ -68,6 +69,7 @@ struct position_estimator_inav_params {
 struct position_estimator_inav_param_handles {
 	param_t w_z_baro;
 	param_t w_z_gps_p;
+	param_t w_z_gps_v;
 	param_t w_z_vision_p;
 	param_t w_z_sonar;
 	param_t w_xy_gps_p;
@@ -95,10 +97,10 @@ struct position_estimator_inav_param_handles {
  * Initialize all parameter handles and values
  *
  */
-int parameters_init(struct position_estimator_inav_param_handles *h);
+int inav_parameters_init(struct position_estimator_inav_param_handles *h);
 
 /**
  * Update all parameters
  *
  */
-int parameters_update(const struct position_estimator_inav_param_handles *h, struct position_estimator_inav_params *p);
+int inav_parameters_update(const struct position_estimator_inav_param_handles *h, struct position_estimator_inav_params *p);

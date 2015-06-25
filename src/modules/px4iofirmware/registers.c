@@ -37,7 +37,7 @@
  * Implementation of the PX4IO register space.
  */
 
-#include <nuttx/config.h>
+#include <px4_config.h>
 
 #include <stdbool.h>
 #include <stdlib.h>
@@ -90,6 +90,7 @@ uint16_t		r_page_status[] = {
 	[PX4IO_P_STATUS_VSERVO]			= 0,
 	[PX4IO_P_STATUS_VRSSI]			= 0,
 	[PX4IO_P_STATUS_PRSSI]			= 0,
+	[PX4IO_P_STATUS_MIXER]			= 0,
 };
 
 /**
@@ -172,6 +173,10 @@ volatile uint16_t	r_page_setup[] =
 	[PX4IO_P_SETUP_REBOOT_BL]		= 0,
 	[PX4IO_P_SETUP_CRC ... (PX4IO_P_SETUP_CRC+1)] = 0,
 	[PX4IO_P_SETUP_RC_THR_FAILSAFE_US] = 0,
+	[PX4IO_P_SETUP_PWM_REVERSE] = 0,
+	[PX4IO_P_SETUP_TRIM_ROLL] = 0,
+	[PX4IO_P_SETUP_TRIM_PITCH] = 0,
+	[PX4IO_P_SETUP_TRIM_YAW] = 0
 };
 
 #ifdef CONFIG_ARCH_BOARD_PX4IO_V2
@@ -191,7 +196,8 @@ volatile uint16_t	r_page_setup[] =
 					 PX4IO_P_SETUP_ARMING_RC_HANDLING_DISABLED | \
 					 PX4IO_P_SETUP_ARMING_LOCKDOWN | \
 					 PX4IO_P_SETUP_ARMING_FORCE_FAILSAFE | \
-					 PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE)
+					 PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE | \
+					 PX4IO_P_SETUP_ARMING_OVERRIDE_IMMEDIATE)
 #define PX4IO_P_SETUP_RATES_VALID	((1 << PX4IO_SERVO_COUNT) - 1)
 #define PX4IO_P_SETUP_RELAYS_VALID	((1 << PX4IO_RELAY_CHANNELS) - 1)
 
@@ -406,11 +412,11 @@ registers_set(uint8_t page, uint8_t offset, const uint16_t *values, unsigned num
 
 		/* handle text going to the mixer parser */
 	case PX4IO_PAGE_MIXERLOAD:
-		if (!(r_status_flags & PX4IO_P_STATUS_FLAGS_SAFETY_OFF) ||
-				    (r_status_flags & PX4IO_P_STATUS_FLAGS_OUTPUTS_ARMED)) {
-			return mixer_handle_text(values, num_values * sizeof(*values));
-		}
-		break;
+		/* do not change the mixer if FMU is armed and IO's safety is off
+		 * this state defines an active system. This check is done in the
+		 * text handling function.
+		 */
+		return mixer_handle_text(values, num_values * sizeof(*values));
 
 	default:
 		/* avoid offset wrap */
@@ -542,8 +548,8 @@ registers_set_one(uint8_t page, uint8_t offset, uint16_t value)
 			break;
 
 		case PX4IO_P_SETUP_PWM_DEFAULTRATE:
-			if (value < 50) {
-				value = 50;
+			if (value < 25) {
+				value = 25;
 			}
 			if (value > 400) {
 				value = 400;
@@ -552,8 +558,8 @@ registers_set_one(uint8_t page, uint8_t offset, uint16_t value)
 			break;
 
 		case PX4IO_P_SETUP_PWM_ALTRATE:
-			if (value < 50) {
-				value = 50;
+			if (value < 25) {
+				value = 25;
 			}
 			if (value > 400) {
 				value = 400;
@@ -582,8 +588,7 @@ registers_set_one(uint8_t page, uint8_t offset, uint16_t value)
 			break;
 
 		case PX4IO_P_SETUP_REBOOT_BL:
-			if ((r_status_flags & PX4IO_P_STATUS_FLAGS_SAFETY_OFF) ||
-			    (r_status_flags & PX4IO_P_STATUS_FLAGS_OUTPUTS_ARMED)) {
+			if (r_status_flags & PX4IO_P_STATUS_FLAGS_SAFETY_OFF) {
 				// don't allow reboot while armed
 				break;
 			}
@@ -603,6 +608,12 @@ registers_set_one(uint8_t page, uint8_t offset, uint16_t value)
 			dsm_bind(value & 0x0f, (value >> 4) & 0xF);
 			break;
 
+		case PX4IO_P_SETUP_FORCE_SAFETY_ON:
+			if (value == PX4IO_FORCE_SAFETY_MAGIC) {
+				r_status_flags &= ~PX4IO_P_STATUS_FLAGS_SAFETY_OFF;
+			}
+			break;
+
 		case PX4IO_P_SETUP_FORCE_SAFETY_OFF:
 			if (value == PX4IO_FORCE_SAFETY_MAGIC) {
 				r_status_flags |= PX4IO_P_STATUS_FLAGS_SAFETY_OFF;
@@ -615,6 +626,16 @@ registers_set_one(uint8_t page, uint8_t offset, uint16_t value)
 			}
 			break;
 
+		case PX4IO_P_SETUP_PWM_REVERSE:
+			r_page_setup[PX4IO_P_SETUP_PWM_REVERSE] = value;
+			break;
+
+		case PX4IO_P_SETUP_TRIM_ROLL:
+		case PX4IO_P_SETUP_TRIM_PITCH:
+		case PX4IO_P_SETUP_TRIM_YAW:
+			r_page_setup[offset] = value;
+			break;
+
 		default:
 			return -1;
 		}
@@ -623,10 +644,9 @@ registers_set_one(uint8_t page, uint8_t offset, uint16_t value)
 	case PX4IO_PAGE_RC_CONFIG: {
 
 		/**
-		 * do not allow a RC config change while outputs armed
+		 * do not allow a RC config change while safety is off
 		 */
-		if ((r_status_flags & PX4IO_P_STATUS_FLAGS_SAFETY_OFF) ||
-			    (r_status_flags & PX4IO_P_STATUS_FLAGS_OUTPUTS_ARMED)) {
+		if (r_status_flags & PX4IO_P_STATUS_FLAGS_SAFETY_OFF) {
 			break;
 		}
 
@@ -686,7 +706,8 @@ registers_set_one(uint8_t page, uint8_t offset, uint16_t value)
 
 				if (conf[PX4IO_P_RC_CONFIG_ASSIGNMENT] == UINT8_MAX) {
 					disabled = true;
-				} else if (conf[PX4IO_P_RC_CONFIG_ASSIGNMENT] >= PX4IO_RC_MAPPED_CONTROL_CHANNELS) {
+				} else if ((conf[PX4IO_P_RC_CONFIG_ASSIGNMENT] >= PX4IO_RC_MAPPED_CONTROL_CHANNELS) &&
+					   (conf[PX4IO_P_RC_CONFIG_ASSIGNMENT] != PX4IO_P_RC_CONFIG_ASSIGNMENT_MODESWITCH)) {
 					count++;
 				}
 
