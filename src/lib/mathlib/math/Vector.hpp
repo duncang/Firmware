@@ -45,7 +45,14 @@
 
 #include <stdio.h>
 #include <math.h>
+
+#ifdef CONFIG_ARCH_ARM
 #include "../CMSIS/Include/arm_math.h"
+#else
+#include <platforms/ros/eigen_math.h>
+#endif
+
+#include <platforms/px4_defines.h>
 
 namespace math
 {
@@ -65,7 +72,12 @@ public:
 	/**
 	 * struct for using arm_math functions, represents column vector
 	 */
+	#ifdef CONFIG_ARCH_ARM
 	arm_matrix_instance_f32 arm_col;
+	#else
+	eigen_matrix_instance arm_col;
+	#endif
+
 
 	/**
 	 * trivial ctor
@@ -395,7 +407,14 @@ public:
 		data[0] = d[0];
 		data[1] = d[1];
 	}
-
+#if defined(__PX4_ROS)
+	/**
+	 * set data from boost::array
+	 */
+	void set(const boost::array<float, 2ul> d) {
+	set(static_cast<const float*>(d.data()));
+	}
+#endif
 	/**
 	 * set to value
 	 */
@@ -432,6 +451,14 @@ public:
 		data[1] = y;
 		data[2] = z;
 	}
+#if defined(__PX4_ROS)
+	/**
+	 * set data from boost::array
+	 */
+	void set(const boost::array<float, 3ul> d) {
+	set(static_cast<const float*>(d.data()));
+	}
+#endif
 
 	/**
 	 * set data
@@ -482,6 +509,14 @@ public:
 		data[2] = x2;
 		data[3] = x3;
 	}
+#if defined(__PX4_ROS)
+	/**
+	 * set data from boost::array
+	 */
+	void set(const boost::array<float, 4ul> d) {
+	set(static_cast<const float*>(d.data()));
+	}
+#endif
 
 	/**
 	 * set data

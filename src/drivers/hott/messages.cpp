@@ -63,7 +63,7 @@ static int _sensor_sub = -1;
 static int _airspeed_sub = -1;
 static int _esc_sub = -1;
 
-static orb_advert_t _esc_pub;
+static orb_advert_t _esc_pub = nullptr;
 
 static bool _home_position_set = false;
 static double _home_lat = 0.0d;
@@ -111,16 +111,16 @@ publish_gam_message(const uint8_t *buffer)
 	// Publish it.
 	esc.timestamp = hrt_absolute_time();
 	esc.esc_count = 1;
-	esc.esc_connectiontype = ESC_CONNECTION_TYPE_PPM;
+	esc.esc_connectiontype = esc_status_s::ESC_CONNECTION_TYPE_PPM;
 
-	esc.esc[0].esc_vendor = ESC_VENDOR_GRAUPNER_HOTT;
+	esc.esc[0].esc_vendor = esc_status_s::ESC_VENDOR_GRAUPNER_HOTT;
 	esc.esc[0].esc_rpm = (uint16_t)((msg.rpm_H << 8) | (msg.rpm_L & 0xff)) * 10;
-	esc.esc[0].esc_temperature = msg.temperature1 - 20; 
-	esc.esc[0].esc_voltage = (uint16_t)((msg.main_voltage_H << 8) | (msg.main_voltage_L & 0xff));
-	esc.esc[0].esc_current = (uint16_t)((msg.current_H << 8) | (msg.current_L & 0xff));
+	esc.esc[0].esc_temperature = static_cast<float>(msg.temperature1) - 20.0F;
+	esc.esc[0].esc_voltage = static_cast<float>((msg.main_voltage_H << 8) | (msg.main_voltage_L & 0xff)) * 0.1F;
+	esc.esc[0].esc_current = static_cast<float>((msg.current_H << 8) | (msg.current_L & 0xff)) * 0.1F;
 
 	/* announce the esc if needed, just publish else */
-	if (_esc_pub > 0) {
+	if (_esc_pub != nullptr) {
 		orb_publish(ORB_ID(esc_status), _esc_pub, &esc);
 	} else {
 		_esc_pub = orb_advertise(ORB_ID(esc_status), &esc);
@@ -186,18 +186,18 @@ build_gam_response(uint8_t *buffer, size_t *size)
 	msg.gam_sensor_id = GAM_SENSOR_ID;
 	msg.sensor_text_id = GAM_SENSOR_TEXT_ID;
 	
-	msg.temperature1 = (uint8_t)(esc.esc[0].esc_temperature + 20);
+	msg.temperature1 = (uint8_t)(esc.esc[0].esc_temperature + 20.0F);
 	msg.temperature2 = 20;  // 0 deg. C.
 
-	uint16_t voltage = (uint16_t)(esc.esc[0].esc_voltage);
+	const uint16_t voltage = (uint16_t)(esc.esc[0].esc_voltage * 10.0F);
 	msg.main_voltage_L = (uint8_t)voltage & 0xff;
 	msg.main_voltage_H = (uint8_t)(voltage >> 8) & 0xff;
 
-	uint16_t current = (uint16_t)(esc.esc[0].esc_current);
+	const uint16_t current = (uint16_t)(esc.esc[0].esc_current * 10.0F);
 	msg.current_L = (uint8_t)current & 0xff;
 	msg.current_H = (uint8_t)(current >> 8) & 0xff;
 
-	uint16_t rpm = (uint16_t)(esc.esc[0].esc_rpm * 0.1f);
+	const uint16_t rpm = (uint16_t)(esc.esc[0].esc_rpm * 0.1f);
 	msg.rpm_L = (uint8_t)rpm & 0xff;
 	msg.rpm_H = (uint8_t)(rpm >> 8) & 0xff;
 
