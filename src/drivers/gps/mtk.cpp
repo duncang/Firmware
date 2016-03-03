@@ -66,8 +66,9 @@ int
 MTK::configure(unsigned &baudrate)
 {
 	/* set baudrate first */
-	if (GPS_Helper::set_baudrate(_fd, MTK_BAUDRATE) != 0)
+	if (GPS_Helper::set_baudrate(_fd, MTK_BAUDRATE) != 0) {
 		return -1;
+	}
 
 	baudrate = MTK_BAUDRATE;
 
@@ -207,8 +208,9 @@ MTK::parse_char(uint8_t b, gps_mtk_packet_t &packet)
 
 	} else if (_decode_state == MTK_DECODE_GOT_CK_B) {
 		// Add to checksum
-		if (_rx_count < 33)
+		if (_rx_count < 33) {
 			add_byte_to_checksum(b);
+		}
 
 		// Fill packet buffer
 		((uint8_t *)(&packet))[_rx_count] = b;
@@ -259,6 +261,8 @@ MTK::handle_message(gps_mtk_packet_t &packet)
 	_gps_position->fix_type = packet.fix_type;
 	_gps_position->eph = packet.hdop / 100.0f; // from cm to m
 	_gps_position->epv = _gps_position->eph; // unknown in mtk custom mode, so we cheat with eph
+	_gps_position->hdop = packet.hdop / 100.0f;
+	_gps_position->vdop = _gps_position->hdop;
 	_gps_position->vel_m_s = ((float)packet.ground_speed) / 100.0f; // from cm/s to m/s
 	_gps_position->cog_rad = ((float)packet.heading) * M_DEG_TO_RAD_F * 1e-2f; //from deg *100 to rad
 	_gps_position->satellites_used = packet.satellites;
@@ -288,12 +292,14 @@ MTK::handle_message(gps_mtk_packet_t &packet)
 		timespec ts;
 		ts.tv_sec = epoch;
 		ts.tv_nsec = timeinfo_conversion_temp * 1000000ULL;
+
 		if (clock_settime(CLOCK_REALTIME, &ts)) {
 			warn("failed setting clock");
 		}
 
 		_gps_position->time_utc_usec = static_cast<uint64_t>(epoch) * 1000000ULL;
 		_gps_position->time_utc_usec += timeinfo_conversion_temp * 1000ULL;
+
 	} else {
 		_gps_position->time_utc_usec = 0;
 	}

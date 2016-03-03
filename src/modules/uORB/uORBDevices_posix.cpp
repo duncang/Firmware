@@ -287,6 +287,7 @@ uORB::DeviceNode::ioctl(device::file_t *filp, int cmd, unsigned long arg)
 
 	case ORBIOCSETINTERVAL:
 		sd->update_interval = arg;
+		sd->last_update = hrt_absolute_time();
 		return PX4_OK;
 
 	case ORBIOCGADVERTISER:
@@ -384,6 +385,11 @@ uORB::DeviceNode::poll_notify_one(px4_pollfd_struct_t *fds, pollevent_t events)
 bool
 uORB::DeviceNode::appears_updated(SubscriberData *sd)
 {
+	/* block if in simulation mode */
+	while (px4_sim_delay_enabled()) {
+		usleep(100);
+	}
+
 	//warnx("uORB::DeviceNode::appears_updated sd = %p", sd);
 	/* assume it doesn't look updated */
 	bool ret = false;
@@ -421,36 +427,17 @@ uORB::DeviceNode::appears_updated(SubscriberData *sd)
 			break;
 		}
 
-// FIXME - the calls to hrt_called and hrt_call_after seem not to work in the
-//         POSIX build
-#ifndef __PX4_POSIX
-
-		/*
-		 * If the interval timer is still running, the topic should not
-		 * appear updated, even though at this point we know that it has.
-		 * We have previously been through here, so the subscriber
-		 * must have collected the update we reported, otherwise
-		 * update_reported would still be true.
-		 */
-		if (!hrt_called(&sd->update_call)) {
+		// If we have not yet reached the deadline, then assume that we can ignore any
+		// newly received data.
+		if (sd->last_update + sd->update_interval > hrt_absolute_time()) {
 			break;
 		}
-
-		/*
-		 * Make sure that we don't consider the topic to be updated again
-		 * until the interval has passed once more by restarting the interval
-		 * timer and thereby re-scheduling a poll notification at that time.
-		 */
-		hrt_call_after(&sd->update_call,
-			       sd->update_interval,
-			       &uORB::DeviceNode::update_deferred_trampoline,
-			       (void *)this);
-#endif
 
 		/*
 		 * Remember that we have told the subscriber that there is data.
 		 */
 		sd->update_reported = true;
+		sd->last_update = hrt_absolute_time();
 		ret = true;
 
 		break;
@@ -660,10 +647,12 @@ uORB::DeviceMaster::ioctl(device::file_t *filp, int cmd, unsigned long arg)
 						if ((existing_node != nullptr) && !(existing_node->is_published())) {
 							/* nothing has been published yet, lets claim it */
 							ret = PX4_OK;
+
 						} else {
 							/* otherwise: data has already been published, keep looking */
 						}
 					}
+
 					/* also discard the name now */
 					free((void *)objname);
 					free((void *)devpath);

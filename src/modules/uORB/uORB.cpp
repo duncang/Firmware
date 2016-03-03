@@ -62,7 +62,7 @@
  */
 orb_advert_t orb_advertise(const struct orb_metadata *meta, const void *data)
 {
-  return uORB::Manager::get_instance()->orb_advertise( meta, data );
+	return uORB::Manager::get_instance()->orb_advertise(meta, data);
 }
 
 /**
@@ -91,11 +91,51 @@ orb_advert_t orb_advertise(const struct orb_metadata *meta, const void *data)
  *      this function will return -1 and set errno to ENOENT.
  */
 orb_advert_t orb_advertise_multi(const struct orb_metadata *meta, const void *data, int *instance,
-          int priority)
+				 int priority)
 {
-  return uORB::Manager::get_instance()->orb_advertise_multi( meta, data, instance, priority );
+	return uORB::Manager::get_instance()->orb_advertise_multi(meta, data, instance, priority);
 }
 
+/**
+ * Advertise as the publisher of a topic.
+ *
+ * This performs the initial advertisement of a topic; it creates the topic
+ * node in /obj if required and publishes the initial data.
+ *
+ * Any number of advertisers may publish to a topic; publications are atomic
+ * but co-ordination between publishers is not provided by the ORB.
+ *
+ * @param meta    The uORB metadata (usually from the ORB_ID() macro)
+ *      for the topic.
+ * @param data    A pointer to the initial data to be published.
+ *      For topics updated by interrupt handlers, the advertisement
+ *      must be performed from non-interrupt context.
+ * @param instance  Pointer to an integer which will yield the instance ID (0-based)
+ *      of the publication.
+ * @param priority  The priority of the instance. If a subscriber subscribes multiple
+ *      instances, the priority allows the subscriber to prioritize the best
+ *      data source as long as its available.
+ * @return   ERROR on error, zero on success.
+ *      If the topic in question is not known (due to an
+ *      ORB_DEFINE with no corresponding ORB_DECLARE)
+ *      this function will return -1 and set errno to ENOENT.
+ */
+int orb_publish_auto(const struct orb_metadata *meta, orb_advert_t *handle, const void *data, int *instance,
+		     int priority)
+{
+	if (*handle == nullptr) {
+		*handle = orb_advertise_multi(meta, data, instance, priority);
+
+		if (*handle != nullptr) {
+			return 0;
+		}
+
+	} else {
+		return orb_publish(meta, *handle, data);
+	}
+
+	return -1;
+}
 
 /**
  * Publish new data to a topic.
@@ -112,7 +152,7 @@ orb_advert_t orb_advertise_multi(const struct orb_metadata *meta, const void *da
  */
 int  orb_publish(const struct orb_metadata *meta, orb_advert_t handle, const void *data)
 {
-  return uORB::Manager::get_instance()->orb_publish( meta, handle, data );
+	return uORB::Manager::get_instance()->orb_publish(meta, handle, data);
 }
 
 /**
@@ -143,7 +183,7 @@ int  orb_publish(const struct orb_metadata *meta, orb_advert_t handle, const voi
  */
 int  orb_subscribe(const struct orb_metadata *meta)
 {
-  return uORB::Manager::get_instance()->orb_subscribe( meta );
+	return uORB::Manager::get_instance()->orb_subscribe(meta);
 }
 
 /**
@@ -177,7 +217,7 @@ int  orb_subscribe(const struct orb_metadata *meta)
  */
 int  orb_subscribe_multi(const struct orb_metadata *meta, unsigned instance)
 {
-  return uORB::Manager::get_instance()->orb_subscribe_multi( meta, instance );
+	return uORB::Manager::get_instance()->orb_subscribe_multi(meta, instance);
 }
 
 /**
@@ -188,7 +228,7 @@ int  orb_subscribe_multi(const struct orb_metadata *meta, unsigned instance)
  */
 int  orb_unsubscribe(int handle)
 {
-  return uORB::Manager::get_instance()->orb_unsubscribe( handle );
+	return uORB::Manager::get_instance()->orb_unsubscribe(handle);
 }
 
 /**
@@ -209,7 +249,7 @@ int  orb_unsubscribe(int handle)
  */
 int  orb_copy(const struct orb_metadata *meta, int handle, void *buffer)
 {
-  return uORB::Manager::get_instance()->orb_copy( meta, handle, buffer );
+	return uORB::Manager::get_instance()->orb_copy(meta, handle, buffer);
 }
 
 /**
@@ -232,7 +272,7 @@ int  orb_copy(const struct orb_metadata *meta, int handle, void *buffer)
  */
 int  orb_check(int handle, bool *updated)
 {
-  return uORB::Manager::get_instance()->orb_check( handle, updated );
+	return uORB::Manager::get_instance()->orb_check(handle, updated);
 }
 
 /**
@@ -245,7 +285,7 @@ int  orb_check(int handle, bool *updated)
  */
 int  orb_stat(int handle, uint64_t *time)
 {
-  return uORB::Manager::get_instance()->orb_stat( handle, time );
+	return uORB::Manager::get_instance()->orb_stat(handle, time);
 }
 
 /**
@@ -257,7 +297,24 @@ int  orb_stat(int handle, uint64_t *time)
  */
 int  orb_exists(const struct orb_metadata *meta, int instance)
 {
-  return uORB::Manager::get_instance()->orb_exists( meta, instance );
+	return uORB::Manager::get_instance()->orb_exists(meta, instance);
+}
+
+/**
+ * Get the number of published instances of a topic group
+ *
+ * @param meta    ORB topic metadata.
+ * @return    The number of published instances of this topic
+ */
+int  orb_group_count(const struct orb_metadata *meta)
+{
+	unsigned instance = 0;
+
+	while (uORB::Manager::get_instance()->orb_exists(meta, instance) == OK) {
+		++instance;
+	};
+
+	return instance;
 }
 
 /**
@@ -270,9 +327,9 @@ int  orb_exists(const struct orb_metadata *meta, int instance)
  *      priority, independent of the startup order of the associated publishers.
  * @return    OK on success, ERROR otherwise with errno set accordingly.
  */
-int  orb_priority(int handle, int *priority)
+int  orb_priority(int handle, int32_t *priority)
 {
-  return uORB::Manager::get_instance()->orb_priority( handle, priority );
+	return uORB::Manager::get_instance()->orb_priority(handle, priority);
 }
 
 /**
@@ -295,6 +352,6 @@ int  orb_priority(int handle, int *priority)
  */
 int  orb_set_interval(int handle, unsigned interval)
 {
-  return uORB::Manager::get_instance()->orb_set_interval( handle, interval );
+	return uORB::Manager::get_instance()->orb_set_interval(handle, interval);
 }
 
