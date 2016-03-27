@@ -118,9 +118,8 @@
 #include <systemlib/perf_counter.h>
 #include <systemlib/git_version.h>
 #include <systemlib/printload.h>
+#include <systemlib/mavlink_log.h>
 #include <version/version.h>
-
-#include <mavlink/mavlink_log.h>
 
 #include "logbuffer.h"
 #include "sdlog2_format.h"
@@ -128,11 +127,13 @@
 
 #define PX4_EPOCH_SECS 1234567890L
 
-#define LOGBUFFER_WRITE_AND_COUNT(_msg) if (logbuffer_write(&lb, &log_msg, LOG_PACKET_SIZE(_msg))) { \
+#define LOGBUFFER_WRITE_AND_COUNT(_msg) pthread_mutex_lock(&logbuffer_mutex); \
+	if (logbuffer_write(&lb, &log_msg, LOG_PACKET_SIZE(_msg))) { \
 		log_msgs_written++; \
 	} else { \
 		log_msgs_skipped++; \
-	}
+	} \
+	pthread_mutex_unlock(&logbuffer_mutex);
 
 #define SDLOG_MIN(X,Y) ((X) < (Y) ? (X) : (Y))
 
@@ -150,10 +151,14 @@ static bool _extended_logging = false;
 static bool _gpstime_only = false;
 static int32_t _utc_offset = 0;
 
+#ifndef __PX4_QURT
 #define MOUNTPOINT PX4_ROOTFSDIR"/fs/microsd"
+#else
+#define MOUNTPOINT "/root"
+#endif
 static const char *mountpoint = MOUNTPOINT;
 static const char *log_root = MOUNTPOINT "/log";
-static int mavlink_fd = -1;
+static orb_advert_t mavlink_log_pub = NULL;
 struct logbuffer_s lb;
 
 /* mutex / condition to synchronize threads */
@@ -474,7 +479,7 @@ int create_log_dir()
 	}
 
 	/* print logging path, important to find log file later */
-	mavlink_and_console_log_info(mavlink_fd, "[blackbox] %s", log_dir);
+	mavlink_and_console_log_info(&mavlink_log_pub, "[blackbox] %s", log_dir);
 
 	return 0;
 }
@@ -511,7 +516,7 @@ int open_log_file()
 
 		if (file_number > MAX_NO_LOGFILE) {
 			/* we should not end up here, either we have more than MAX_NO_LOGFILE on the SD card, or another problem */
-			mavlink_and_console_log_critical(mavlink_fd, "[blackbox] ERR: max files %d", MAX_NO_LOGFILE);
+			mavlink_and_console_log_critical(&mavlink_log_pub, "[blackbox] ERR: max files %d", MAX_NO_LOGFILE);
 			return -1;
 		}
 	}
@@ -523,10 +528,10 @@ int open_log_file()
 #endif
 
 	if (fd < 0) {
-		mavlink_and_console_log_critical(mavlink_fd, "[blackbox] failed: %s", log_file_name);
+		mavlink_and_console_log_critical(&mavlink_log_pub, "[blackbox] failed: %s", log_file_name);
 
 	} else {
-		mavlink_and_console_log_info(mavlink_fd, "[blackbox] recording: %s", log_file_name);
+		mavlink_and_console_log_info(&mavlink_log_pub, "[blackbox] recording: %s", log_file_name);
 	}
 
 	return fd;
@@ -563,7 +568,7 @@ int open_perf_file(const char* str)
 
 		if (file_number > MAX_NO_LOGFILE) {
 			/* we should not end up here, either we have more than MAX_NO_LOGFILE on the SD card, or another problem */
-			mavlink_and_console_log_critical(mavlink_fd, "[blackbox] ERR: max files %d", MAX_NO_LOGFILE);
+			mavlink_and_console_log_critical(&mavlink_log_pub, "[blackbox] ERR: max files %d", MAX_NO_LOGFILE);
 			return -1;
 		}
 	}
@@ -575,7 +580,7 @@ int open_perf_file(const char* str)
 #endif
 
 	if (fd < 0) {
-		mavlink_and_console_log_critical(mavlink_fd, "[blackbox] failed: %s", log_file_name);
+		mavlink_and_console_log_critical(&mavlink_log_pub, "[blackbox] failed: %s", log_file_name);
 
 	}
 
@@ -702,7 +707,7 @@ void sdlog2_start_log()
 
 	/* create log dir if needed */
 	if (create_log_dir() != 0) {
-		mavlink_and_console_log_critical(mavlink_fd, "[blackbox] error creating log dir");
+		mavlink_and_console_log_critical(&mavlink_log_pub, "[blackbox] error creating log dir");
 		return;
 	}
 
@@ -717,8 +722,8 @@ void sdlog2_start_log()
 
 	struct sched_param param;
 	(void)pthread_attr_getschedparam(&logwriter_attr, &param);
-	/* low priority, as this is expensive disk I/O */
-	param.sched_priority = SCHED_PRIORITY_DEFAULT - 40;
+	/* low priority, as this is expensive disk I/O. */
+	param.sched_priority = SCHED_PRIORITY_DEFAULT - 5;
 	if (pthread_attr_setschedparam(&logwriter_attr, &param)) {
 		warnx("sdlog2: failed setting sched params");
 	}
@@ -760,6 +765,11 @@ void sdlog2_stop_log()
 		return;
 	}
 
+	/* disabling the logging will trigger the skipped count to increase,
+	 * so we take a local copy before interrupting the disk I/O.
+	 */
+	unsigned long skipped_count = log_msgs_skipped;
+
 	logging_enabled = false;
 
 	/* wake up write thread one last time */
@@ -798,7 +808,7 @@ void sdlog2_stop_log()
 	/* free log buffer */
 	logbuffer_free(&lb);
 
-	mavlink_and_console_log_info(mavlink_fd, "[blackbox] recording stopped");
+	mavlink_and_console_log_info(&mavlink_log_pub, "[blackbox] stopped (%lu drops)", skipped_count);
 
 	sdlog2_status();
 }
@@ -912,12 +922,6 @@ bool copy_if_updated_multi(orb_id_t topic, int multi_instance, int *handle, void
 
 int sdlog2_thread_main(int argc, char *argv[])
 {
-	mavlink_fd = px4_open(MAVLINK_LOG_DEVICE, 0);
-
-	if (mavlink_fd < 0) {
-		warnx("ERR: log stream, start mavlink app first");
-	}
-
 	/* default log rate: 50 Hz */
 	int32_t log_rate = 50;
 	int log_buffer_size = LOG_BUFFER_SIZE_DEFAULT;
@@ -1061,7 +1065,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 		/* any other value means to ignore the parameter, so no else case */
 
 	}
-	
+
 	param_t log_utc_offset = param_find("SDLOG_UTC_OFFSET");
 
 	if ( log_utc_offset != PARAM_INVALID ) {
@@ -1093,12 +1097,13 @@ int sdlog2_thread_main(int argc, char *argv[])
 	}
 
 	struct vehicle_status_s buf_status;
-
-	struct vehicle_gps_position_s buf_gps_pos;
-
 	memset(&buf_status, 0, sizeof(buf_status));
 
+	struct vehicle_gps_position_s buf_gps_pos;
 	memset(&buf_gps_pos, 0, sizeof(buf_gps_pos));
+
+	struct vehicle_command_s buf_cmd;
+	memset(&buf_status, 0, sizeof(buf_cmd));
 
 	// check if we are gathering data for a replay log for ekf2
 	// is yes then disable logging of some topics to avoid dropouts
@@ -1200,6 +1205,9 @@ int sdlog2_thread_main(int argc, char *argv[])
 			struct log_CAMT_s log_CAMT;
 			struct log_RPL1_s log_RPL1;
 			struct log_RPL2_s log_RPL2;
+			struct log_EST6_s log_INO3;
+			struct log_RPL3_s log_RPL3;
+			struct log_RPL4_s log_RPL4;
 		} body;
 	} log_msg = {
 		LOG_PACKET_HEADER_INIT(0)
@@ -1293,7 +1301,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 	for (unsigned i = 0; i < ORB_MULTI_MAX_INSTANCES; i++) {
 		subs.telemetry_subs[i] = -1;
 	}
-	
+
 	subs.sat_info_sub = -1;
 
 #ifdef __PX4_NUTTX
@@ -1398,8 +1406,8 @@ int sdlog2_thread_main(int argc, char *argv[])
 		}
 
 		/* --- VEHICLE COMMAND - LOG MANAGEMENT --- */
-		if (copy_if_updated(ORB_ID(vehicle_command), &subs.cmd_sub, &buf.cmd)) {
-			handle_command(&buf.cmd);
+		if (copy_if_updated(ORB_ID(vehicle_command), &subs.cmd_sub, &buf_cmd)) {
+			handle_command(&buf_cmd);
 		}
 
 		/* --- VEHICLE STATUS - LOG MANAGEMENT --- */
@@ -1422,8 +1430,6 @@ int sdlog2_thread_main(int argc, char *argv[])
 		if (!logging_enabled) {
 			continue;
 		}
-
-		pthread_mutex_lock(&logbuffer_mutex);
 
 		/* write time stamp message */
 		log_msg.msg_type = LOG_TIME_MSG;
@@ -1463,43 +1469,48 @@ int sdlog2_thread_main(int argc, char *argv[])
 			log_msg.body.log_RPL1.magnetometer_z_ga = buf.replay.magnetometer_ga[2];
 			log_msg.body.log_RPL1.baro_alt_meter = buf.replay.baro_alt_meter;
 			LOGBUFFER_WRITE_AND_COUNT(RPL1);
-			log_msg.msg_type = LOG_RPL2_MSG;
-			log_msg.body.log_RPL2.time_pos_usec = buf.replay.time_usec;
-			log_msg.body.log_RPL2.time_vel_usec = buf.replay.time_usec_vel;
-			log_msg.body.log_RPL2.lat = buf.replay.lat;
-			log_msg.body.log_RPL2.lon = buf.replay.lon;
-			log_msg.body.log_RPL2.alt = buf.replay.alt;
-			log_msg.body.log_RPL2.fix_type = buf.replay.fix_type;
-			log_msg.body.log_RPL2.eph = buf.replay.eph;
-			log_msg.body.log_RPL2.epv = buf.replay.epv;
-			log_msg.body.log_RPL2.vel_m_s = buf.replay.vel_m_s;
-			log_msg.body.log_RPL2.vel_n_m_s = buf.replay.vel_n_m_s;
-			log_msg.body.log_RPL2.vel_e_m_s = buf.replay.vel_e_m_s;
-			log_msg.body.log_RPL2.vel_d_m_s = buf.replay.vel_d_m_s;
-			log_msg.body.log_RPL2.vel_ned_valid = buf.replay.vel_ned_valid;
-			LOGBUFFER_WRITE_AND_COUNT(RPL2);
-		}
 
-		/* --- ATTITUDE --- */
-		if (copy_if_updated(ORB_ID(vehicle_attitude), &subs.att_sub, &buf.att)) {
-			log_msg.msg_type = LOG_ATT_MSG;
-			log_msg.body.log_ATT.q_w = buf.att.q[0];
-			log_msg.body.log_ATT.q_x = buf.att.q[1];
-			log_msg.body.log_ATT.q_y = buf.att.q[2];
-			log_msg.body.log_ATT.q_z = buf.att.q[3];
-			log_msg.body.log_ATT.roll = buf.att.roll;
-			log_msg.body.log_ATT.pitch = buf.att.pitch;
-			log_msg.body.log_ATT.yaw = buf.att.yaw;
-			log_msg.body.log_ATT.roll_rate = buf.att.rollspeed;
-			log_msg.body.log_ATT.pitch_rate = buf.att.pitchspeed;
-			log_msg.body.log_ATT.yaw_rate = buf.att.yawspeed;
-			log_msg.body.log_ATT.gx = buf.att.g_comp[0];
-			log_msg.body.log_ATT.gy = buf.att.g_comp[1];
-			log_msg.body.log_ATT.gz = buf.att.g_comp[2];
-			LOGBUFFER_WRITE_AND_COUNT(ATT);
-		}
+			// only log the gps replay data if it actually updated
+			if (buf.replay.time_usec > 0) {
+				log_msg.msg_type = LOG_RPL2_MSG;
+				log_msg.body.log_RPL2.time_pos_usec = buf.replay.time_usec;
+				log_msg.body.log_RPL2.time_vel_usec = buf.replay.time_usec_vel;
+				log_msg.body.log_RPL2.lat = buf.replay.lat;
+				log_msg.body.log_RPL2.lon = buf.replay.lon;
+				log_msg.body.log_RPL2.alt = buf.replay.alt;
+				log_msg.body.log_RPL2.fix_type = buf.replay.fix_type;
+				log_msg.body.log_RPL2.nsats = buf.replay.nsats;
+				log_msg.body.log_RPL2.eph = buf.replay.eph;
+				log_msg.body.log_RPL2.epv = buf.replay.epv;
+				log_msg.body.log_RPL2.sacc = buf.replay.sacc;
+				log_msg.body.log_RPL2.vel_m_s = buf.replay.vel_m_s;
+				log_msg.body.log_RPL2.vel_n_m_s = buf.replay.vel_n_m_s;
+				log_msg.body.log_RPL2.vel_e_m_s = buf.replay.vel_e_m_s;
+				log_msg.body.log_RPL2.vel_d_m_s = buf.replay.vel_d_m_s;
+				log_msg.body.log_RPL2.vel_ned_valid = buf.replay.vel_ned_valid;
+				LOGBUFFER_WRITE_AND_COUNT(RPL2);
+			}
 
-		if (!record_replay_log) {
+			if (buf.replay.flow_timestamp > 0) {
+				log_msg.msg_type = LOG_RPL3_MSG;
+				log_msg.body.log_RPL3.time_flow_usec = buf.replay.flow_timestamp;
+				log_msg.body.log_RPL3.flow_integral_x = buf.replay.flow_pixel_integral[0];
+				log_msg.body.log_RPL3.flow_integral_y = buf.replay.flow_pixel_integral[1];
+				log_msg.body.log_RPL3.gyro_integral_x = buf.replay.flow_gyro_integral[0];
+				log_msg.body.log_RPL3.gyro_integral_y = buf.replay.flow_gyro_integral[1];
+				log_msg.body.log_RPL3.flow_time_integral = buf.replay.flow_time_integral;
+				log_msg.body.log_RPL3.flow_quality = buf.replay.flow_quality;
+				LOGBUFFER_WRITE_AND_COUNT(RPL3);
+			}
+
+			if (buf.replay.rng_timestamp > 0) {
+				log_msg.msg_type = LOG_RPL4_MSG;
+				log_msg.body.log_RPL4.time_rng_usec = buf.replay.rng_timestamp;
+				log_msg.body.log_RPL4.range_to_ground = buf.replay.range_to_ground;
+				LOGBUFFER_WRITE_AND_COUNT(RPL4);
+			}
+
+		} else { /* !record_replay_log */
 
 			/* we poll on sensor combined, so we know it has updated just now */
 			for (unsigned i = 0; i < 3; i++) {
@@ -1553,9 +1564,9 @@ int sdlog2_thread_main(int argc, char *argv[])
 					log_msg.body.log_IMU.mag_x = buf.sensor.magnetometer_ga[i * 3 + 0];
 					log_msg.body.log_IMU.mag_y = buf.sensor.magnetometer_ga[i * 3 + 1];
 					log_msg.body.log_IMU.mag_z = buf.sensor.magnetometer_ga[i * 3 + 2];
-					log_msg.body.log_IMU.temp_gyro = buf.sensor.gyro_temp[i * 3 + 0];
-					log_msg.body.log_IMU.temp_acc = buf.sensor.accelerometer_temp[i * 3 + 0];
-					log_msg.body.log_IMU.temp_mag = buf.sensor.magnetometer_temp[i * 3 + 0];
+					log_msg.body.log_IMU.temp_gyro = buf.sensor.gyro_temp[i];
+					log_msg.body.log_IMU.temp_acc = buf.sensor.accelerometer_temp[i];
+					log_msg.body.log_IMU.temp_mag = buf.sensor.magnetometer_temp[i];
 					LOGBUFFER_WRITE_AND_COUNT(IMU);
 				}
 
@@ -1995,6 +2006,15 @@ int sdlog2_thread_main(int argc, char *argv[])
 				log_msg.body.log_INO2.s[7] = buf.innovations.heading_innov_var;
 				LOGBUFFER_WRITE_AND_COUNT(EST5);
 
+				log_msg.msg_type = LOG_EST6_MSG;
+				memset(&(log_msg.body.log_INO3.s), 0, sizeof(log_msg.body.log_INO3.s));
+				for(unsigned i = 0; i < 2; i++) {
+					log_msg.body.log_INO3.s[i] = buf.innovations.flow_innov[i];
+					log_msg.body.log_INO3.s[i + 2] = buf.innovations.flow_innov_var[i];
+				}
+				log_msg.body.log_INO3.s[4] = buf.innovations.hagl_innov;
+				log_msg.body.log_INO3.s[5] = buf.innovations.hagl_innov_var;
+				LOGBUFFER_WRITE_AND_COUNT(EST6);
 			}
 
 			/* --- TECS STATUS --- */
@@ -2068,6 +2088,25 @@ int sdlog2_thread_main(int argc, char *argv[])
 			}
 		}
 
+		/* --- ATTITUDE --- */
+		if (copy_if_updated(ORB_ID(vehicle_attitude), &subs.att_sub, &buf.att)) {
+			log_msg.msg_type = LOG_ATT_MSG;
+			log_msg.body.log_ATT.q_w = buf.att.q[0];
+			log_msg.body.log_ATT.q_x = buf.att.q[1];
+			log_msg.body.log_ATT.q_y = buf.att.q[2];
+			log_msg.body.log_ATT.q_z = buf.att.q[3];
+			log_msg.body.log_ATT.roll = buf.att.roll;
+			log_msg.body.log_ATT.pitch = buf.att.pitch;
+			log_msg.body.log_ATT.yaw = buf.att.yaw;
+			log_msg.body.log_ATT.roll_rate = buf.att.rollspeed;
+			log_msg.body.log_ATT.pitch_rate = buf.att.pitchspeed;
+			log_msg.body.log_ATT.yaw_rate = buf.att.yawspeed;
+			log_msg.body.log_ATT.gx = buf.att.g_comp[0];
+			log_msg.body.log_ATT.gy = buf.att.g_comp[1];
+			log_msg.body.log_ATT.gz = buf.att.g_comp[2];
+			LOGBUFFER_WRITE_AND_COUNT(ATT);
+		}
+
 		/* --- CAMERA TRIGGER --- */
 		if (copy_if_updated(ORB_ID(camera_trigger), &subs.cam_trig_sub, &buf.camera_trigger)) {
 			log_msg.msg_type = LOG_CAMT_MSG;
@@ -2075,6 +2114,8 @@ int sdlog2_thread_main(int argc, char *argv[])
 			log_msg.body.log_CAMT.seq = buf.camera_trigger.seq;
 			LOGBUFFER_WRITE_AND_COUNT(CAMT);
 		}
+
+		pthread_mutex_lock(&logbuffer_mutex);
 
 		/* signal the other thread new data, but not yet unlock */
 		if (logbuffer_count(&lb) > MIN_BYTES_TO_WRITE) {
@@ -2113,7 +2154,7 @@ void sdlog2_status()
 		float seconds = ((float)(hrt_absolute_time() - start_time)) / 1000000.0f;
 
 		warnx("wrote %lu msgs, %4.2f MiB (average %5.3f KiB/s), skipped %lu msgs", log_msgs_written, (double)mebibytes, (double)(kibibytes / seconds), log_msgs_skipped);
-		mavlink_log_info(mavlink_fd, "[blackbox] wrote %lu msgs, skipped %lu msgs", log_msgs_written, log_msgs_skipped);
+		mavlink_log_info(&mavlink_log_pub, "[blackbox] wrote %lu msgs, skipped %lu msgs", log_msgs_written, log_msgs_skipped);
 	}
 }
 
@@ -2137,16 +2178,14 @@ int check_free_space()
 
 	/* use a threshold of 50 MiB */
 	if (statfs_buf.f_bavail < (px4_statfs_buf_f_bavail_t)(50 * 1024 * 1024 / statfs_buf.f_bsize)) {
-		mavlink_and_console_log_critical(mavlink_fd,
-			"[blackbox] no space on MicroSD: %u MiB",
+		mavlink_and_console_log_critical(&mavlink_log_pub, "[blackbox] no space on MicroSD: %u MiB",
 			(unsigned int)(statfs_buf.f_bavail * statfs_buf.f_bsize) / (1024U * 1024U));
 		/* we do not need a flag to remember that we sent this warning because we will exit anyway */
 		return PX4_ERROR;
 
 	/* use a threshold of 100 MiB to send a warning */
 	} else if (!space_warning_sent && statfs_buf.f_bavail < (px4_statfs_buf_f_bavail_t)(100 * 1024 * 1024 / statfs_buf.f_bsize)) {
-		mavlink_and_console_log_critical(mavlink_fd,
-			"[blackbox] space on MicroSD low: %u MiB",
+		mavlink_and_console_log_critical(&mavlink_log_pub, "[blackbox] space on MicroSD low: %u MiB",
 			(unsigned int)(statfs_buf.f_bavail * statfs_buf.f_bsize) / (1024U * 1024U));
 		/* we don't want to flood the user with warnings */
 		space_warning_sent = true;
