@@ -288,3 +288,9 @@ ORB_DEFINE(mavlink_log, struct mavlink_log_s);
 
 #include "topics/follow_target.h"
 ORB_DEFINE(follow_target, struct follow_target_s);
+
+#include "topics/sensor_wastegate.h"
+ORB_DEFINE(sensor_wastegate, struct sensor_wastegate_s);
+
+#include "topics/actuator_wastegate.h"
+ORB_DEFINE(actuator_wastegate, struct actuator_wastegate_s);

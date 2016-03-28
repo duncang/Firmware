@@ -162,6 +162,9 @@ set(config_module_list
 
 	# Hardware test
 	#examples/hwtest
+
+	#fireblade
+	examples/wastegate_ctrl
 )
 
 set(config_extra_builtin_cmds
